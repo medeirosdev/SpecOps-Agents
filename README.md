@@ -13,7 +13,7 @@ Watch every agent and subagent work in real time, in the terminal or in the brow
 [![License: MIT](https://img.shields.io/badge/license-MIT-7cc47f)](LICENSE)
 ![No config](https://img.shields.io/badge/config-none-b48ead)
 
-[Quick start](#-quick-start) · [Features](#-features) · [Usage](#-usage) · [How it works](#-how-it-works) · [Privacy](#-privacy) · [Development](#-development)
+[Quick start](#quick-start) · [Features](#features) · [Usage](#usage) · [How it works](#how-it-works) · [Privacy](#privacy) · [Development](#development)
 
 <br>
 
@@ -31,20 +31,20 @@ full timeline you can open for any agent.
 It works by reading the transcripts Claude Code already writes to `~/.claude/projects`.
 **No hooks, no config, no API keys, and nothing leaves your machine.**
 
-## ✨ Features
+## Features
 
 <table>
 <tr>
 <td width="50%" valign="top">
 
-### 🎯 Live agent cards
+### Live agent cards
 Every agent and subagent gets a card with its current action (*Reading `src/theme.ts`*,
 *Running `pytest`*), its latest thought, files touched, todos, and token usage.
 
 </td>
 <td width="50%" valign="top">
 
-### 🧭 Full chain of command
+### Full chain of command
 Subagents are linked to the agent that spawned them, including subagents of subagents.
 Jump from any spawn straight to the agent it started.
 
@@ -53,14 +53,14 @@ Jump from any spawn straight to the agent it started.
 <tr>
 <td valign="top">
 
-### 🕓 Timelines
+### Timelines
 Open any agent for its complete history, filtered by thoughts, tools, or files, with every tool
 input and output.
 
 </td>
 <td valign="top">
 
-### 📡 Follow mode
+### Follow mode
 Start `claude` in any project and its session shows up on its own. With **Follow** on, the view
 jumps to whichever session is working.
 
@@ -69,14 +69,14 @@ jumps to whichever session is working.
 <tr>
 <td valign="top">
 
-### 🖥️ Terminal or browser
+### Terminal or browser
 A keyboard-driven [Textual](https://textual.textualize.io/) TUI, or a web dashboard with light
 and dark themes. Both render the same live snapshot.
 
 </td>
 <td valign="top">
 
-### 🔒 Local and read-only
+### Local and read-only
 It only reads files that are already on your disk. The web UI binds to `127.0.0.1`, and there's
 nothing to install into Claude Code.
 
@@ -84,7 +84,7 @@ nothing to install into Claude Code.
 </tr>
 </table>
 
-## 🚀 Quick start
+## Quick start
 
 ```sh
 uv tool install git+https://github.com/medeirosdev/SpecOps-Claude
@@ -107,7 +107,7 @@ uvx --from git+https://github.com/medeirosdev/SpecOps-Claude specops --demo
 
 Requires Python 3.10+.
 
-## 🕹️ Usage
+## Usage
 
 | Option | |
 | --- | --- |
@@ -116,7 +116,7 @@ Requires Python 3.10+.
 | `--root DIR` | transcripts directory (default `~/.claude/projects`, or `$CLAUDE_CONFIG_DIR/projects`) |
 | `--demo` | watch a simulated squad |
 | `web --port 7777` | port for the browser UI (the next free one is used if it's busy) |
-| `web --host 127.0.0.1` | interface to bind; read [Privacy](#-privacy) before changing it |
+| `web --host 127.0.0.1` | interface to bind; read [Privacy](#privacy) before changing it |
 | `web --no-browser` | don't open a browser tab |
 
 ### In the terminal
@@ -149,12 +149,12 @@ Click any agent card (or a finished agent) for its full timeline, with tool inpu
 | `Esc` | close the timeline |
 
 <details>
-<summary><b>☀️ Light theme</b></summary>
+<summary><b>Light theme</b></summary>
 <br>
 <img src="docs/web-light.png" alt="SpecOps Claude in light theme" width="100%">
 </details>
 
-## ⚙️ How it works
+## How it works
 
 Claude Code appends one JSON event per line to `~/.claude/projects/<project>/<session>.jsonl`.
 Each subagent gets its own `<session>/subagents/agent-<id>.jsonl`, plus a `.meta.json` naming its
@@ -188,7 +188,7 @@ running, since builds and test suites can be slow).
 > can still make something display oddly. Please
 > [open an issue](https://github.com/medeirosdev/SpecOps-Claude/issues) if it does.
 
-## 🔒 Privacy
+## Privacy
 
 Transcripts hold your prompts, code, and command output. SpecOps Claude only reads them locally,
 and the web UI binds to `127.0.0.1` by default.
@@ -197,7 +197,7 @@ and the web UI binds to `127.0.0.1` by default.
 > If you pass `--host 0.0.0.0`, anyone who can reach that port can read all of it. There is no
 > authentication.
 
-## 🛠️ Development
+## Development
 
 ```sh
 git clone https://github.com/medeirosdev/SpecOps-Claude && cd SpecOps-Claude
@@ -210,7 +210,7 @@ uv run ruff check src tests && uv run ruff format src tests
 (`src/specops/demo.py`) writes realistic transcripts to a temp directory, so it goes through the
 same pipeline as real sessions.
 
-## 📄 License
+## License
 
 [MIT](LICENSE) © Guilherme Medeiros
 
