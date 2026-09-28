@@ -13,7 +13,7 @@ Watch every agent and subagent work in real time, in the terminal or in the brow
 [![License: MIT](https://img.shields.io/badge/license-MIT-7cc47f)](LICENSE)
 ![No config](https://img.shields.io/badge/config-none-b48ead)
 
-[Quick start](#quick-start) · [Features](#features) · [Usage](#usage) · [Antigravity](#antigravity) · [How it works](#how-it-works) · [Privacy](#privacy) · [Development](#development)
+[Quick start](#quick-start) · [Features](#features) · [Usage](#usage) · [Skills](#skills) · [Antigravity](#antigravity) · [How it works](#how-it-works) · [Privacy](#privacy) · [Development](#development)
 
 <br>
 
@@ -99,6 +99,15 @@ with Follow jumping to whichever agent is working.
 
 </td>
 </tr>
+<tr>
+<td colspan="2" valign="top">
+
+### One skill library for both
+Write a skill once in the **Skills** tab and publish it to Claude Code and Antigravity, for every
+project or just one. Editing is locked behind a code only your terminal sees.
+
+</td>
+</tr>
 </table>
 
 ## Quick start
@@ -136,6 +145,7 @@ Requires Python 3.10+.
 | `web --port 7777` | port for the browser UI (the next free one is used if it's busy) |
 | `web --host 127.0.0.1` | interface to bind; read [Privacy](#privacy) before changing it |
 | `web --no-browser` | don't open a browser tab |
+| `web --read-only` | show the skill library but never write skills |
 
 ### In the terminal
 
@@ -171,6 +181,48 @@ Click any agent card (or a finished agent) for its full timeline, with tool inpu
 <br>
 <img src="docs/web-light.png" alt="SpecOps Agents in light theme" width="100%">
 </details>
+
+## Skills
+
+The **Skills** tab keeps one library of skills and publishes them where agents look for them.
+Claude Code and Antigravity read the same format (a folder with a `SKILL.md` holding a `name`,
+a `description` of when to use it, and instructions), so one skill serves both.
+
+| | Everywhere | One project |
+| --- | --- | --- |
+| Claude Code | `~/.claude/skills/<name>` | `<project>/.claude/skills/<name>` |
+| Antigravity | `~/.gemini/config/skills/<name>` | `<project>/.agents/skills/<name>` |
+
+- Skills live in `~/.specops/skills/` and are **copied** where you publish them. Saving a skill
+  updates every published copy.
+- Each copy carries a `.specops-skill.json` marker. A folder without it (a skill you made
+  elsewhere) is never overwritten or deleted, and a copy edited by hand since publishing is only
+  replaced or removed after you confirm. Existing skills can be imported into the library.
+- Projects are the folders where SpecOps has seen an agent session, never an arbitrary path.
+- Every change is logged to `~/.specops/audit.log` and shown in the tab.
+- Sessions that are already running may need a restart to pick up a new skill.
+
+### Unlocking edits
+
+Reading the tab is open, but writing skills means writing instructions agents will follow, so
+editing is locked. When `specops web` starts it prints an **unlock code** in the terminal:
+
+```
+  🔑 skills unlock code: 7KQ2M-XW4PD  (single use: type it in the browser to edit skills)
+```
+
+Type it in the browser to unlock. What protects the write path:
+
+| Layer | What it stops |
+| --- | --- |
+| Unlock code printed only in the terminal, single use, replaced after every unlock | anyone without access to your terminal |
+| 5 wrong codes lock unlocking for 5 minutes and replace the code | guessing |
+| 256-bit session token, kept as a hash, compared in constant time; expires after 15 min idle or 8 h | stolen or forgotten sessions |
+| `Host` must be localhost; `Origin` must be this server, `Sec-Fetch-Site: same-origin` | other websites (CSRF) and DNS rebinding |
+| JSON body plus a custom `X-SpecOps` header, no CORS | forms and "simple" cross-site requests |
+| Strict Content-Security-Policy (no inline or third-party scripts), no framing | turning a display bug into token theft, clickjacking |
+| Writes only on a loopback bind; `--read-only` turns them off | exposing edits over the network |
+| Names limited to `a-z0-9-`, writes confined to the skills folders, symlinks never followed or copied | path traversal and leaking files through links |
 
 ## Antigravity
 

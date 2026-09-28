@@ -221,6 +221,14 @@ class Hive:
     def stop(self) -> None:
         self._stop.set()
 
+    def project_dirs(self) -> list[str]:
+        """Working directories of every session seen, from all sources."""
+        with self._lock:
+            found = list(self.sessions.values())
+            for source in self.sources:
+                found += source.sessions()
+            return sorted({a.cwd for s in found for a in s.agents if a.cwd})
+
     # ---------------------------------------------------------------- snapshot
     def snapshot(self, detail: str | None = None) -> dict[str, Any]:
         """Everything the UIs need. Only the ``detail`` session carries full timelines."""

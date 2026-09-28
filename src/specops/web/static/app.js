@@ -605,6 +605,10 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (document.body.dataset.view === "skills") {
+    if (e.key === "t") toggleTheme();
+    return;
+  }
   if (e.key === "Escape") closeDrawer();
   else if (e.key === "/") { e.preventDefault(); $("#search").focus(); }
   else if (e.key === "t") toggleTheme();

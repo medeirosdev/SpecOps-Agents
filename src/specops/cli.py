@@ -104,6 +104,11 @@ def build_parser() -> argparse.ArgumentParser:
         "think twice before exposing them",
     )
     web.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
+    web.add_argument(
+        "--read-only",
+        action="store_true",
+        help="show the skill library but never write skills (no unlock code is issued)",
+    )
     return parser
 
 
@@ -125,18 +130,44 @@ def make_hive(args: argparse.Namespace) -> tuple[Hive, object | None]:
     return Hive(root=root, since=since, project_filter=args.project, sources=sources), demo
 
 
+def _print_code(code: str) -> None:
+    print(
+        f"  \033[38;5;215m🔑 skills unlock code: \033[1m{code}\033[0m"
+        "  \033[2m(single use: type it in the browser to edit skills)\033[0m",
+        flush=True,
+    )
+
+
 def run_web(args: argparse.Namespace) -> int:
-    from .web.server import serve
+    from .skills import Library
+    from .web.auth import Auth
+    from .web.server import Skills, serve
 
     hive, demo = make_hive(args)
     hive.poll()
     hive.start()
-    server = serve(hive, host=args.host, port=args.port)
+    library = Library(projects=hive.project_dirs)
+    local = args.host in ("127.0.0.1", "localhost", "::1")
+    if args.read_only or args.demo or not local:
+        reason = (
+            "started with --read-only"
+            if args.read_only
+            else "editing is off in demo mode"
+            if args.demo
+            else "editing is disabled on a non-local interface"
+        )
+        skills = Skills(library, None, reason)
+    else:
+        skills = Skills(library, None)  # Auth is created once the banner is printed
+    server = serve(hive, host=args.host, port=args.port, skills=skills)
     host, port = server.server_address[:2]
     shown = "localhost" if host in ("127.0.0.1", "::1") else host
     url = f"http://{shown}:{port}/"
     print(f"\n  \033[38;5;215m◎ SpecOps Agents\033[0m is watching \033[2m{hive.root}\033[0m")
     print(f"     open \033[1m{url}\033[0m  ·  Ctrl+C to stop\n")
+    if not skills.reason:
+        skills.auth = Auth(on_code=_print_code)
+        print()
     if host not in ("127.0.0.1", "localhost", "::1"):
         print(
             "  \033[33m! listening on a non-local interface: "

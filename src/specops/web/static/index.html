@@ -6,9 +6,7 @@
   <title>SpecOps Agents</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css">
-  <script>
-    try { const t = localStorage.getItem("specops.theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
-  </script>
+  <script src="/static/boot.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -16,6 +14,10 @@
       <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><use href="#mark"/></svg>
       <span class="wordmark">SpecOps <b>Agents</b></span>
       <span class="live" id="live" title="Connection"><i></i><span>connecting</span></span>
+      <nav class="views" aria-label="Views">
+        <a href="#" data-view="agents" aria-current="page">Agents</a>
+        <a href="#skills" data-view="skills">Skills</a>
+      </nav>
     </div>
     <div class="stats" id="stats"></div>
     <div class="actions">
@@ -28,7 +30,7 @@
     </div>
   </header>
 
-  <div class="layout">
+  <div class="layout" id="agents-view">
     <aside class="sidebar">
       <div class="search">
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -38,6 +40,34 @@
     </aside>
 
     <main id="main" class="main"></main>
+  </div>
+
+  <div class="layout" id="skills-view" hidden>
+    <aside class="sidebar">
+      <div class="sk-side-head">
+        <button class="btn primary" id="sk-new" type="button">New skill</button>
+      </div>
+      <nav id="sk-list" class="sessions" aria-label="Skills"></nav>
+    </aside>
+    <main id="sk-main" class="main"></main>
+  </div>
+
+  <div id="sk-unlock" class="modal" hidden>
+    <div class="modal-scrim" data-unlock-close></div>
+    <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="sk-unlock-title">
+      <h2 id="sk-unlock-title">Unlock skill editing</h2>
+      <p>Type the unlock code printed in the terminal running <code>specops web</code>.
+        Each code works once; a new one is printed after you unlock.</p>
+      <input id="sk-code" class="code-input" autocomplete="off" autocapitalize="characters"
+        spellcheck="false" maxlength="11" placeholder="XXXXX-XXXXX" aria-label="Unlock code">
+      <p class="modal-error" id="sk-unlock-error" role="alert"></p>
+      <div class="modal-actions">
+        <button class="btn" type="button" data-unlock-close>Cancel</button>
+        <button class="btn primary" type="button" id="sk-unlock-go">Unlock</button>
+      </div>
+      <p class="fine">5 wrong codes lock unlocking for 5 minutes and replace the code. Editing locks
+        itself after 15 minutes idle.</p>
+    </section>
   </div>
 
   <div id="drawer" class="drawer" aria-hidden="true">
@@ -57,5 +87,6 @@
     </symbol>
   </svg>
   <script src="/static/app.js"></script>
+  <script src="/static/skills.js"></script>
 </body>
 </html>
