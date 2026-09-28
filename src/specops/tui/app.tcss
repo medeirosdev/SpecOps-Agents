@@ -1,0 +1,130 @@
+Screen {
+    background: $background;
+}
+
+#topbar {
+    height: 1;
+    background: $panel;
+    color: $foreground;
+}
+
+#body {
+    height: 1fr;
+}
+
+#left {
+    width: 34;
+    border-right: tall $panel;
+}
+
+.label {
+    color: $text-muted;
+    text-style: bold;
+    height: auto;
+    margin: 1 0 0 0;
+}
+
+#sessions {
+    height: 1fr;
+    border: none;
+    background: transparent;
+    padding: 0;
+    scrollbar-size-vertical: 1;
+}
+
+#sessions > .option-list--option {
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+#sessions:focus {
+    border: none;
+}
+
+#colony {
+    padding: 1 2;
+    scrollbar-size-vertical: 1;
+}
+
+#shead {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.card {
+    height: auto;
+    padding: 0 1;
+    margin-bottom: 1;
+    background: $surface;
+    border: round #3a342c;
+    border-title-align: left;
+    border-subtitle-align: right;
+    border-title-color: $foreground;
+}
+
+.card:focus {
+    border: round $primary;
+    background: #211d17;
+}
+
+.card.-thinking { border: round #6b5a99; }
+.card.-tool { border: round #8f6536; }
+.card.-writing { border: round #43678f; }
+.card.-thinking:focus, .card.-tool:focus, .card.-writing:focus { border: round $primary; }
+
+#workers {
+    grid-size: 2;
+    grid-gutter: 0 2;
+    height: auto;
+}
+
+#finished {
+    height: auto;
+    max-height: 16;
+    border: none;
+    background: transparent;
+    padding: 0;
+}
+
+#empty {
+    width: 100%;
+    height: auto;
+    content-align: center middle;
+    text-align: center;
+    margin-top: 6;
+}
+
+AgentScreen {
+    align: right middle;
+    background: $background 60%;
+}
+
+#agent-panel {
+    width: 80%;
+    max-width: 130;
+    height: 100%;
+    background: $surface;
+    border-left: tall $primary;
+}
+
+#agent-head {
+    height: auto;
+    padding: 1 2 0 2;
+}
+
+#agent-tabs {
+    height: auto;
+    padding: 1 2;
+    border-bottom: solid $panel;
+}
+
+#agent-scroll {
+    height: 1fr;
+    padding: 0 2;
+    scrollbar-size-vertical: 1;
+}
+
+#agent-timeline {
+    height: auto;
+    padding-bottom: 1;
+}

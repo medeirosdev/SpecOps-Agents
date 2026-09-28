@@ -1,0 +1,51 @@
+name: Bug report
+description: Something is wrong or crashes
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! **Transcripts are private**: they contain your prompts, code and
+        command output. Please don't paste them whole. A few redacted JSONL lines around the
+        problem are usually enough.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead. Screenshots welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Does it also happen with `specops --demo`?
+      placeholder: |
+        1. Run `specops web`
+        2. Start a Claude Code session that spawns a subagent
+        3. ...
+  - type: dropdown
+    id: ui
+    attributes:
+      label: Which UI?
+      options: [Terminal (tui), Browser (web), Both]
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Output of `specops --version` and `claude --version`
+      placeholder: specops 0.1.0, Claude Code 2.x
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS, terminal / browser
+      placeholder: macOS 15, iTerm2 / Firefox 140
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Traceback or console errors
+      render: text
