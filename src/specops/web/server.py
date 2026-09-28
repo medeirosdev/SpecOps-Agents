@@ -17,6 +17,7 @@ Every response forbids framing and sniffing, and the page gets a strict Content-
 
 from __future__ import annotations
 
+import contextlib
 import json
 import mimetypes
 import threading
@@ -35,6 +36,9 @@ STATIC = resources.files("specops.web") / "static"
 HEARTBEAT = 5.0
 LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 MAX_REQUEST = 512 * 1024
+# A refused request's body is still read (up to this much) before answering: closing a socket
+# with unread data makes some systems (macOS) reset it before the client sees the response.
+MAX_DISCARD = 8 * 1024 * 1024
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; "
@@ -120,6 +124,7 @@ def make_handler(
             )
 
         def do_POST(self) -> None:
+            self._body_read = False
             try:
                 self._guard_write()
                 body = self._read_json()
@@ -189,8 +194,10 @@ def make_handler(
                 raise HTTPError(HTTPStatus.LENGTH_REQUIRED, "Content-Length required") from None
             if length < 0 or length > MAX_REQUEST:
                 raise HTTPError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "request too large")
+            raw = self.rfile.read(length)
+            self._body_read = True
             try:
-                data = json.loads(self.rfile.read(length) or b"null")
+                data = json.loads(raw or b"null")
             except ValueError:
                 raise HTTPError(HTTPStatus.BAD_REQUEST, "invalid JSON") from None
             if not isinstance(data, dict):
@@ -209,9 +216,29 @@ def make_handler(
         def _client(self) -> str:
             return str(self.client_address[0])
 
+        def _discard_body(self) -> None:
+            if self.command != "POST" or getattr(self, "_body_read", True):
+                return
+            self._body_read = True
+            try:
+                left = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                left = 0
+            if left > MAX_DISCARD:
+                return  # not worth reading; the connection is closed after the answer
+            while left > 0:
+                chunk = self.rfile.read(min(left, 64 * 1024))
+                if not chunk:
+                    break
+                left -= len(chunk)
+
         def _error(self, status: int, message: str, retry_after: float = 0) -> None:
+            with contextlib.suppress(OSError):
+                self._discard_body()
+            self.close_connection = True
             body = json.dumps({"error": message, "retry_after": round(retry_after)}).encode()
             self.send_response(status)
+            self.send_header("Connection", "close")
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
             if retry_after:

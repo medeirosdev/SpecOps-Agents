@@ -165,8 +165,12 @@ def test_bad_bodies(srv: Server) -> None:
     token = srv.unlock()
     assert srv.post("/api/skills/create", b"{not json", token)[0] == 400
     assert srv.post("/api/skills/create", [1, 2], token)[0] == 400
-    big = {**SKILL, "body": "x" * 600_000}
-    assert srv.post("/api/skills/create", big, token)[0] == 413
+    # Bigger than socket buffers: the client is still sending when the server refuses, which
+    # must still end in a clean answer, not a connection reset (it did on macOS).
+    big = {**SKILL, "body": "x" * 5_000_000}
+    for _ in range(3):
+        assert srv.post("/api/skills/create", big, token)[0] == 413
+        assert srv.post("/api/skills/create", big, token, Origin="http://evil.example")[0] == 403
     evil = {**SKILL, "name": "../../escape"}
     assert srv.post("/api/skills/create", evil, token)[0] == 400
     assert srv.post("/api/skills/nope", {}, token)[0] == 404
