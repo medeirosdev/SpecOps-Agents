@@ -181,6 +181,12 @@ code, .mono { font-family: var(--mono); font-size: .92em; }
   grid-column: 2 / 4; color: var(--text-2); font-size: 12.5px; line-height: 1.4;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
+.src {
+  display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: 5px; vertical-align: 1px;
+  font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; line-height: 16px;
+  color: var(--c-web); border: 1px solid color-mix(in srgb, var(--c-web) 45%, transparent);
+}
+.src-chip { color: var(--c-web); border-color: color-mix(in srgb, var(--c-web) 45%, transparent); font-weight: 650; }
 .session .ants { grid-column: 2 / 4; display: flex; gap: 3px; margin-top: 3px; flex-wrap: wrap; }
 .session .ants i { width: 6px; height: 6px; border-radius: 2px; background: var(--s-idle); opacity: .7; }
 .session .ants i.working { opacity: 1; }

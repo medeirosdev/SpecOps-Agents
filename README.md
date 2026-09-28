@@ -4,7 +4,7 @@
 
 # SpecOps Claude
 
-**Mission control for your Claude Code agents.**
+**Mission control for your Claude Code and Antigravity agents.**
 Watch every agent and subagent work in real time, in the terminal or in the browser.
 
 [![CI](https://github.com/medeirosdev/SpecOps-Claude/actions/workflows/ci.yml/badge.svg)](https://github.com/medeirosdev/SpecOps-Claude/actions/workflows/ci.yml)
@@ -13,7 +13,7 @@ Watch every agent and subagent work in real time, in the terminal or in the brow
 [![License: MIT](https://img.shields.io/badge/license-MIT-7cc47f)](LICENSE)
 ![No config](https://img.shields.io/badge/config-none-b48ead)
 
-[Quick start](#quick-start) · [Features](#features) · [Usage](#usage) · [How it works](#how-it-works) · [Privacy](#privacy) · [Development](#development)
+[Quick start](#quick-start) · [Features](#features) · [Usage](#usage) · [Antigravity](#antigravity) · [How it works](#how-it-works) · [Privacy](#privacy) · [Development](#development)
 
 <br>
 
@@ -28,8 +28,9 @@ a spinner. **SpecOps Claude shows you the whole squad:** who is working, what ea
 right now (reading which file, running which command), what it last thought, its todo list, and a
 full timeline you can open for any agent.
 
-It works by reading the transcripts Claude Code already writes to `~/.claude/projects`.
-**No hooks, no config, no API keys, and nothing leaves your machine.**
+It works by reading the transcripts Claude Code already writes to `~/.claude/projects`, and the
+step logs Google's [Antigravity](#antigravity) IDE and CLI keep in `~/.gemini`, so both kinds of
+agents show up side by side. **No hooks, no config, no API keys, and nothing leaves your machine.**
 
 ## Features
 
@@ -82,6 +83,22 @@ nothing to install into Claude Code.
 
 </td>
 </tr>
+<tr>
+<td valign="top">
+
+### Antigravity too
+Conversations from the Antigravity IDE and the `agy` CLI appear next to your Claude sessions,
+tagged **Antigravity**, with their tool calls, files, task list, and the model in use.
+
+</td>
+<td valign="top">
+
+### One view for every agent
+Claude Code in one project, Antigravity in another: a single list, sorted by what's active,
+with Follow jumping to whichever agent is working.
+
+</td>
+</tr>
 </table>
 
 ## Quick start
@@ -115,6 +132,7 @@ Requires Python 3.10+.
 | `-p, --project TEXT` | only show projects whose path contains `TEXT` |
 | `--root DIR` | transcripts directory (default `~/.claude/projects`, or `$CLAUDE_CONFIG_DIR/projects`) |
 | `--demo` | watch a simulated squad |
+| `--no-antigravity` | leave out Antigravity IDE / CLI conversations |
 | `web --port 7777` | port for the browser UI (the next free one is used if it's busy) |
 | `web --host 127.0.0.1` | interface to bind; read [Privacy](#privacy) before changing it |
 | `web --no-browser` | don't open a browser tab |
@@ -154,6 +172,30 @@ Click any agent card (or a finished agent) for its full timeline, with tool inpu
 <img src="docs/web-light.png" alt="SpecOps Claude in light theme" width="100%">
 </details>
 
+## Antigravity
+
+If you use Google's Antigravity, its conversations show up automatically, tagged **Antigravity**
+(IDE) or **Antigravity CLI**. Nothing to configure; pass `--no-antigravity` to hide them.
+
+| What you see | Where it comes from |
+| --- | --- |
+| Prompts, replies, thinking (CLI), and every tool call with its arguments | `~/.gemini/antigravity*/brain/<id>/.system_generated/logs/` (JSONL step logs) |
+| Todo list | the agent's `brain/<id>/task.md` checklist |
+| Title, workspace, running or idle, the step waiting for your approval | trajectory summaries (protobuf) in the IDE's `state.vscdb` and the CLI's `conversation_summaries.db` |
+| Subagents (CLI) | parent links in `conversation_summaries.db` |
+| Model | the model picker setting recorded in the prompt |
+
+What to expect:
+
+- Antigravity logs a step once it finishes, so a tool shows as running until the agent's next
+  reply appears, and tool outputs aren't shown.
+- The IDE writes its summaries every so often, so "running / idle" can lag a little. The step log
+  itself updates as the agent works.
+- Token usage isn't recorded, so Antigravity cards show tool counts only.
+- The full IDE conversations (`conversations/*.pb`) are encrypted and not read.
+- None of this is a documented format. SpecOps Claude decodes it defensively and skips anything
+  it doesn't recognise, but an Antigravity update can change it.
+
 ## How it works
 
 Claude Code appends one JSON event per line to `~/.claude/projects/<project>/<session>.jsonl`.
@@ -164,6 +206,8 @@ type and the tool call that spawned it.
 flowchart LR
     CC["Claude Code<br/>sessions"] -- writes --> T[("~/.claude/projects<br/>*.jsonl transcripts")]
     T -- "scan + tail<br/>every ~2s" --> H["Hive<br/>rebuilds agent state"]
+    AG["Antigravity<br/>IDE + CLI"] -- writes --> L[("~/.gemini<br/>step logs + summaries")]
+    L -- "tail + decode" --> H
     H --> TUI["Terminal UI<br/>(Textual)"]
     H -- "Server-Sent Events" --> WEB["Web UI<br/>(vanilla JS)"]
 ```
@@ -190,8 +234,8 @@ running, since builds and test suites can be slow).
 
 ## Privacy
 
-Transcripts hold your prompts, code, and command output. SpecOps Claude only reads them locally,
-and the web UI binds to `127.0.0.1` by default.
+Transcripts and Antigravity logs hold your prompts, code, and command output. SpecOps Claude only
+reads them locally, and the web UI binds to `127.0.0.1` by default.
 
 > [!WARNING]
 > If you pass `--host 0.0.0.0`, anyone who can reach that port can read all of it. There is no

@@ -155,6 +155,10 @@ def status_badge(status: str) -> Text:
 
 
 # --------------------------------------------------------------------------- sessions
+SOURCE_TAG = {"antigravity": "AG", "antigravity-cli": "AG CLI"}
+SOURCE_NAME = {"antigravity": "Antigravity IDE", "antigravity-cli": "Antigravity CLI"}
+
+
 def session_prompt(s: dict[str, Any], width: int = 30) -> Text:
     t = Text(no_wrap=True, overflow="ellipsis")
     t.append_text(status_dot(s["status"]))
@@ -165,7 +169,10 @@ def session_prompt(s: dict[str, Any], width: int = 30) -> Text:
     pad = max(1, width - 2 - min(len(s["project"]), name_w) - len(when))
     t.append(" " * pad + when, style=MUTED)
     t.append("\n  ")
-    t.append(one_line(s["title"], width - 3), style=TEXT_2)
+    label = SOURCE_TAG.get(s.get("source", ""), "")
+    if label:
+        t.append(label + " ", style=f"bold {CAT_COLOR['web']}")
+    t.append(one_line(s["title"], width - 3 - len(label) - bool(label)), style=TEXT_2)
     if s.get("agent_count", 1) > 1:
         t.append("\n  ")
         for a in s["agents"][: width - 4]:
@@ -316,13 +323,10 @@ def card_body(a: dict[str, Any], wide: bool = False) -> RenderableType:
     foot = Table.grid(expand=True)
     foot.add_column()
     foot.add_column(justify="right")
-    foot.add_row(
-        Text(
-            f"{a.get('tool_count', 0)} tools · {tokens((a.get('tokens') or {}).get('out'))} tok",
-            style=MUTED,
-        ),
-        trail(a, 40 if wide else 22),
-    )
+    counts = f"{a.get('tool_count', 0)} tools"
+    if a.get("source", "claude") not in SOURCE_NAME:  # Antigravity doesn't log token usage
+        counts += f" · {tokens((a.get('tokens') or {}).get('out'))} tok"
+    foot.add_row(Text(counts, style=MUTED), trail(a, 40 if wide else 22))
     parts.append(foot)
     return Group(*parts)
 

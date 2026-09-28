@@ -73,6 +73,12 @@ def _add_common(parser: argparse.ArgumentParser, defaults: bool) -> None:
         default=default(False),
         help="watch a simulated squad instead of your real sessions",
     )
+    parser.add_argument(
+        "--no-antigravity",
+        action="store_true",
+        default=default(False),
+        help="don't show Antigravity IDE / CLI conversations",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -81,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="specops",
-        description="Watch your Claude Code agents and subagents work, live.",
+        description="Watch your Claude Code (and Antigravity) agents and subagents work, live.",
     )
     _add_common(parser, defaults=True)
     parser.add_argument("-V", "--version", action="version", version=f"specops {__version__}")
@@ -111,7 +117,12 @@ def make_hive(args: argparse.Namespace) -> tuple[Hive, object | None]:
         demo = Demo()
         root = demo.start()
         since = 0
-    return Hive(root=root, since=since, project_filter=args.project), demo
+    sources = []
+    if not (args.demo or args.no_antigravity):
+        from .antigravity import default_sources
+
+        sources = default_sources(since, args.project)
+    return Hive(root=root, since=since, project_filter=args.project, sources=sources), demo
 
 
 def run_web(args: argparse.Namespace) -> int:

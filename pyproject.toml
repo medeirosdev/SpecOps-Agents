@@ -5,13 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "specops-claude"
 version = "0.1.0"
-description = "Mission control for your Claude Code agents: watch every agent and subagent work in real time, in the terminal or in the browser."
+description = "Mission control for your Claude Code and Antigravity agents: watch every agent and subagent work in real time, in the terminal or in the browser."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Guilherme Medeiros", email = "guilherme.ggcm20@gmail.com" }]
-keywords = ["claude", "claude-code", "agents", "subagents", "tui", "dashboard", "observability", "textual"]
+keywords = ["claude", "claude-code", "antigravity", "gemini", "agents", "subagents", "tui", "dashboard", "observability", "textual"]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Environment :: Console",

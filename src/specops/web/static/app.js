@@ -74,8 +74,12 @@ const STATUS = {
 const WORKING = new Set(["thinking", "tool", "writing"]);
 
 const HUES = ["var(--c-search)", "var(--c-agent)", "var(--c-web)", "var(--c-plan)", "var(--c-read)", "var(--c-mcp)", "var(--c-ask)"];
+const SOURCES = { antigravity: "Antigravity IDE", "antigravity-cli": "Antigravity CLI" };
+const SOURCE_TAGS = { antigravity: "Antigravity", "antigravity-cli": "Antigravity CLI" };
+const srcTag = (s) => (SOURCE_TAGS[s.source] ? `<span class="src">${SOURCE_TAGS[s.source]}</span>` : "");
+
 function hueFor(agent) {
-  if (agent.kind === "main") return "var(--accent)";
+  if (agent.kind === "main") return SOURCES[agent.source] ? "var(--c-web)" : "var(--accent)";
   const t = agent.type || agent.name || "";
   if (t === "Explore") return "var(--c-search)";
   if (t === "general-purpose") return "var(--c-agent)";
@@ -228,7 +232,7 @@ function renderSessions() {
       return `<span class="dot ${s.status}"></span>
         <span class="proj">${esc(s.project)}</span>
         <span class="when">${liveAgo(s.last_ts)}</span>
-        <span class="title">${esc(s.title)}</span>
+        <span class="title">${srcTag(s)}${esc(s.title)}</span>
         ${s.agent_count > 1 ? `<span class="ants">${ants}</span>` : ""}`;
     },
     (s) => (s.label ? "group-label" : "session" + (s.id === state.selected ? " selected" : ""))
@@ -247,8 +251,8 @@ function renderMain() {
     setHTML(
       main,
       `<div class="empty">${mark()}<h2>All quiet on the field</h2>
-      <p>No Claude Code sessions found in the last hours under<br><code>${esc(state.snap.root)}</code></p>
-      <p>Start <code>claude</code> in any project and it shows up here live. Or try the demo:</p>
+      <p>No Claude Code or Antigravity sessions found in the last hours under<br><code>${esc(state.snap.root)}</code></p>
+      <p>Start <code>claude</code> or an Antigravity agent in any project and it shows up here live. Or try the demo:</p>
       <pre>specops web --demo</pre></div>`
     );
     return;
@@ -279,12 +283,13 @@ function renderMain() {
           <button class="chip" data-copy="${esc(d.cwd)}" title="Copy path">${icon("folder")}<span class="mono">${esc(tilde(d.cwd))}</span></button>
           ${d.branch ? `<span class="chip">${icon("branch")}${esc(d.branch)}</span>` : ""}
           <span class="chip">${icon("clock")}started ${clock(d.started || d.last_ts)}</span>
+          ${SOURCES[d.source] ? `<span class="chip src-chip">${esc(SOURCES[d.source])}</span>` : ""}
         </div>
       </div>
       <div class="totals">
         <div class="total"><b>${d.agents.length}</b><span>agents</span></div>
         <div class="total"><b>${toolsUsed}</b><span>tool calls</span></div>
-        <div class="total"><b>${tokens(tok)}</b><span>tokens out</span></div>
+        ${tok || !SOURCES[d.source] ? `<div class="total"><b>${tokens(tok)}</b><span>tokens out</span></div>` : ""}
       </div>
     </div>`
   );
@@ -399,7 +404,7 @@ function card(a, queen) {
       <div class="who"><div class="name">${esc(a.name)}${a.model ? `<span class="model">${esc(model(a.model))}</span>` : ""}</div>
       <div class="desc" title="${esc(desc)}">${esc(desc)}</div></div>
       ${pill(a)}</div>`;
-  const foot = `<div class="card-foot"><span>${a.tool_count} tools</span><span>${tokens(a.tokens?.out)} tok</span>${trail(a)}</div>`;
+  const foot = `<div class="card-foot"><span>${a.tool_count} tools</span>${SOURCES[a.source] ? "" : `<span>${tokens(a.tokens?.out)} tok</span>`}${trail(a)}</div>`;
   if (queen) {
     return `${head}<div class="qgrid">
       <div>${nowLine(a)}${thought(a)}</div><div>${folder(a, 10)}${todos(a)}</div></div>${foot}`;
@@ -454,7 +459,7 @@ function renderDrawer(fresh = false) {
     <div class="shead" style="margin:12px 0 0"><div class="meta" style="margin:0">
       <button class="chip" data-copy="${esc(a.cwd)}" title="Copy path">${icon("folder")}<span class="mono">${esc(tilde(a.cwd))}</span></button>
       ${a.branch ? `<span class="chip">${icon("branch")}${esc(a.branch)}</span>` : ""}
-      <span class="chip">${a.tool_count} tools · ${tokens(a.tokens.out)} out · ${tokens(a.tokens.in + a.tokens.cache)} in</span>
+      <span class="chip">${a.tool_count} tools${SOURCES[a.source] ? "" : ` · ${tokens(a.tokens.out)} out · ${tokens(a.tokens.in + a.tokens.cache)} in`}</span>
     </div></div>
     ${a.kind === "sub" && a.task ? `<div class="task">${esc(a.task)}</div>` : ""}
     <div class="tabs">${["timeline", "thoughts", "tools", "files"]

@@ -29,7 +29,11 @@ AGENT_IDENTITY = (
     "agent_type",
     "description",
     "depth",
+    "source",
 )
+
+# Name shown for the main agent of a session, by where the session comes from.
+MAIN_NAMES = {"claude": "Claude", "antigravity": "Antigravity", "antigravity-cli": "Antigravity"}
 
 # Phases an agent can be in. "Working" phases are shown as live.
 WORKING = {"thinking", "writing", "tool"}
@@ -137,6 +141,7 @@ class Agent:
     agent_type: str = ""
     description: str = ""
     depth: int = 0
+    source: str = "claude"
     task: str = ""
     cwd: str = ""
     branch: str = ""
@@ -353,7 +358,7 @@ class Agent:
 
     def name(self) -> str:
         if self.kind == "main":
-            return "Claude"
+            return MAIN_NAMES.get(self.source, "Claude")
         return self.agent_type or "subagent"
 
     def brief(self, now: float) -> dict[str, Any]:
@@ -361,6 +366,7 @@ class Agent:
         return {
             "id": self.id,
             "kind": self.kind,
+            "source": self.source,
             "name": self.name(),
             "description": self.description,
             "status": self.status(now),
@@ -378,6 +384,7 @@ class Agent:
             "id": self.id,
             "session_id": self.session_id,
             "kind": self.kind,
+            "source": self.source,
             "name": self.name(),
             "type": self.agent_type,
             "title": self.title,
@@ -417,6 +424,7 @@ class Session:
     project_dir: str
     main: Agent
     subagents: dict[str, Agent] = field(default_factory=dict)
+    source: str = "claude"
 
     @property
     def agents(self) -> list[Agent]:
@@ -427,13 +435,20 @@ class Session:
         return max((a.last_ts or 0) for a in self.agents)
 
     def link_subagents(self) -> None:
-        """Resolve each subagent's parent (main agent or another subagent) via tool ids."""
+        """Resolve each subagent's parent (main agent or another subagent) via tool ids.
+
+        A subagent with no spawning tool id keeps the parent it was created with, if known.
+        """
         owners: dict[str, Agent] = {}
         for agent in self.agents:
             for act in agent.activities:
                 if act.tool_id:
                     owners[act.tool_id] = agent
         for sub in self.subagents.values():
+            if not sub.parent_tool_id and sub.parent_id:
+                if sub.parent_id != self.main.id and sub.parent_id not in self.subagents:
+                    sub.parent_id = self.main.id
+                continue
             parent = owners.get(sub.parent_tool_id, self.main)
             if parent is sub:
                 parent = self.main
@@ -467,6 +482,7 @@ class Session:
         agents = sorted(self.subagents.values(), key=lambda a: a.started or 0)
         return {
             "id": self.id,
+            "source": self.source,
             "project": self.project_name(),
             "project_dir": self.project_dir,
             "cwd": self.main.cwd,

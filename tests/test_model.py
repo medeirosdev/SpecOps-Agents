@@ -245,7 +245,15 @@ def test_fixture_session_end_to_end() -> None:
     assert d["agent_count"] == 2 and d["working"] == 0
     assert d["agents"][0]["files"][0]["rel"] == os.path.join("tests", "test_checkout.py")
     brief = s.to_dict(now)
-    assert set(brief["agents"][0]) == {"id", "kind", "name", "description", "status", "last_ts"}
+    assert set(brief["agents"][0]) == {
+        "id",
+        "kind",
+        "source",
+        "name",
+        "description",
+        "status",
+        "last_ts",
+    }
     json.dumps(d)  # snapshots must be JSON serialisable
 
 

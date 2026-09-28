@@ -7,10 +7,10 @@ import json
 import os
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from .model import Agent, Session
 
@@ -24,6 +24,16 @@ def default_root() -> Path:
     return base / "projects"
 
 
+class Source(Protocol):
+    """Another place sessions come from (e.g. Antigravity), polled alongside the transcripts."""
+
+    name: str
+
+    def poll(self) -> bool: ...
+
+    def sessions(self) -> list[Session]: ...
+
+
 @dataclass
 class _Tail:
     path: Path
@@ -35,7 +45,7 @@ class _Tail:
 
 
 class Hive:
-    """Thread-safe registry of sessions, fed by polling transcript files.
+    """Thread-safe registry of sessions, fed by polling transcript files and extra ``sources``.
 
     Call :meth:`poll` periodically (or :meth:`start` for a background thread) and read
     :meth:`snapshot` from any thread.
@@ -47,8 +57,10 @@ class Hive:
         since: float = 6 * 3600,
         project_filter: str | None = None,
         max_sessions: int = 40,
+        sources: Sequence[Source] = (),
     ) -> None:
         self.root = Path(root) if root else default_root()
+        self.sources = list(sources)
         self.since = since
         self.project_filter = project_filter.lower() if project_filter else None
         self.max_sessions = max_sessions
@@ -176,6 +188,11 @@ class Hive:
                     touched.add(tail.session.id)
             for sid in touched:
                 self.sessions[sid].link_subagents()
+            for source in self.sources:
+                try:
+                    changed |= source.poll()
+                except Exception:  # a broken source must not take the viewer down
+                    continue
             if changed or touched:
                 self.version += 1
                 changed = True
@@ -209,11 +226,15 @@ class Hive:
         """Everything the UIs need. Only the ``detail`` session carries full timelines."""
         now = time.time()
         with self._lock:
-            sessions = sorted(self.sessions.values(), key=lambda s: s.last_ts, reverse=True)
+            found = list(self.sessions.values())
+            for source in self.sources:
+                found += source.sessions()
+            sessions = sorted(found, key=lambda s: s.last_ts, reverse=True)
             return {
                 "version": self.version,
                 "now": now,
                 "root": str(self.root),
+                "sources": ["claude", *(source.name for source in self.sources)],
                 "home": str(Path.home()),
                 "sessions": [s.to_dict(now, detail=s.id == detail) for s in sessions],
             }

@@ -338,7 +338,7 @@ class SpecOpsApp(App[None]):
             empty.update(
                 Text.assemble(
                     ("All quiet on the field.\n\n", "bold"),
-                    ("No Claude Code sessions found under\n", r.TEXT_2),
+                    ("No Claude Code or Antigravity sessions found under\n", r.TEXT_2),
                     (f"{self.hive.root}\n\n", r.ACCENT),
                     ("Start `claude` in any project and it appears here live,\nor try ", r.TEXT_2),
                     ("specops --demo", "bold"),
@@ -355,13 +355,15 @@ class SpecOpsApp(App[None]):
         head.append(r.tilde(s.get("cwd", "")), style=r.TEXT_2)
         if s.get("branch"):
             head.append(f"   ⎇ {s['branch']}", style=r.MUTED)
+        if s.get("source") in r.SOURCE_NAME:
+            head.append(f"   {r.SOURCE_NAME[s['source']]}", style=f"bold {r.CAT_COLOR['web']}")
         agents = s["agents"]
         tools_used = sum(a.get("tool_count", 0) for a in agents)
         out = sum((a.get("tokens") or {}).get("out", 0) for a in agents)
-        head.append(
-            f"   {len(agents)} agents · {tools_used} tool calls · {r.tokens(out)} tokens out",
-            style=r.MUTED,
-        )
+        totals = f"   {len(agents)} agents · {tools_used} tool calls"
+        if out or s.get("source", "claude") == "claude":
+            totals += f" · {r.tokens(out)} tokens out"
+        head.append(totals, style=r.MUTED)
         self.query_one("#shead", Static).update(head)
 
         queen, *subs = agents
