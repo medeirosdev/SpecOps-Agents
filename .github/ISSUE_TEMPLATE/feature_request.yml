@@ -1,5 +1,5 @@
 name: Feature request
-description: An idea to make SpecOps Claude more useful
+description: An idea to make SpecOps Agents more useful
 labels: [enhancement]
 body:
   - type: textarea

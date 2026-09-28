@@ -1,4 +1,4 @@
-"""A fake colony: writes realistic Claude Code transcripts so SpecOps Claude can be tried without Claude.
+"""A fake colony: writes realistic Claude Code transcripts so SpecOps Agents can be tried without Claude.
 
 The demo exercises the real pipeline end to end: it appends JSONL events to files in a temporary
 ``projects`` directory and the normal :class:`~specops.hive.Hive` follows them.

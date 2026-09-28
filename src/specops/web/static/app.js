@@ -204,7 +204,7 @@ function renderStats() {
       `<span><b>${active}</b> active session${active === 1 ? "" : "s"}</span>` +
       `<span><b>${ss.length}</b> total</span>`
   );
-  document.title = working ? `(${working}) SpecOps Claude` : "SpecOps Claude";
+  document.title = working ? `(${working}) SpecOps Agents` : "SpecOps Agents";
 }
 
 function renderSessions() {

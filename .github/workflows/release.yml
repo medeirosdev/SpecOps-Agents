@@ -1,7 +1,7 @@
 name: Release
 
 # Push a tag like v0.1.0 to publish to PyPI. Uses PyPI trusted publishing: add this repository
-# and workflow (release.yml, environment "pypi") as a trusted publisher for specops-claude first.
+# and workflow (release.yml, environment "pypi") as a trusted publisher for specops-agents first.
 on:
   push:
     tags: ["v*"]

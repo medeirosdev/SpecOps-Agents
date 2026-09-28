@@ -152,7 +152,7 @@ class AgentScreen(ModalScreen[None]):
 
 class SpecOpsApp(App[None]):
     CSS_PATH = "app.tcss"
-    TITLE = "SpecOps Claude"
+    TITLE = "SpecOps Agents"
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("q", "quit", "Quit"),
         Binding("f", "toggle_follow", "Follow"),
@@ -290,7 +290,7 @@ class SpecOpsApp(App[None]):
         active = sum(1 for s in sessions if s["status"] == "working")
         t = Text()
         t.append(" ▲▼ ", style=f"bold {r.ACCENT}")
-        t.append("SpecOps Claude", style="bold")
+        t.append("SpecOps Agents", style="bold")
         t.append(f" {__version__}", style=r.DIM)
         t.append("   ")
         t.append(f"{working}", style=f"bold {r.STATUS_COLOR['tool'] if working else r.TEXT_2}")

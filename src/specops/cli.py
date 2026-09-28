@@ -135,7 +135,7 @@ def run_web(args: argparse.Namespace) -> int:
     host, port = server.server_address[:2]
     shown = "localhost" if host in ("127.0.0.1", "::1") else host
     url = f"http://{shown}:{port}/"
-    print(f"\n  \033[38;5;215m◎ SpecOps Claude\033[0m is watching \033[2m{hive.root}\033[0m")
+    print(f"\n  \033[38;5;215m◎ SpecOps Agents\033[0m is watching \033[2m{hive.root}\033[0m")
     print(f"     open \033[1m{url}\033[0m  ·  Ctrl+C to stop\n")
     if host not in ("127.0.0.1", "localhost", "::1"):
         print(

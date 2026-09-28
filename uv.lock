@@ -172,7 +172,7 @@ wheels = [
 ]
 
 [[package]]
-name = "specops-claude"
+name = "specops-agents"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/logo.svg" width="96" height="96" alt="SpecOps Claude logo">
+<img src="docs/logo.svg" width="96" height="96" alt="SpecOps Agents logo">
 
-# SpecOps Claude
+# SpecOps Agents
 
 **Mission control for your Claude Code and Antigravity agents.**
 Watch every agent and subagent work in real time, in the terminal or in the browser.
@@ -17,14 +17,14 @@ Watch every agent and subagent work in real time, in the terminal or in the brow
 
 <br>
 
-<img src="docs/web.png" alt="SpecOps Claude web dashboard" width="100%">
+<img src="docs/web.png" alt="SpecOps Agents web dashboard" width="100%">
 
 </div>
 
 ---
 
 When Claude fans out to three `Explore` agents and a `general-purpose` one, your terminal shows you
-a spinner. **SpecOps Claude shows you the whole squad:** who is working, what each agent is doing
+a spinner. **SpecOps Agents shows you the whole squad:** who is working, what each agent is doing
 right now (reading which file, running which command), what it last thought, its todo list, and a
 full timeline you can open for any agent.
 
@@ -139,7 +139,7 @@ Requires Python 3.10+.
 
 ### In the terminal
 
-<img src="docs/tui.png" alt="SpecOps Claude terminal dashboard" width="100%">
+<img src="docs/tui.png" alt="SpecOps Agents terminal dashboard" width="100%">
 
 | Key | |
 | --- | --- |
@@ -169,7 +169,7 @@ Click any agent card (or a finished agent) for its full timeline, with tool inpu
 <details>
 <summary><b>Light theme</b></summary>
 <br>
-<img src="docs/web-light.png" alt="SpecOps Claude in light theme" width="100%">
+<img src="docs/web-light.png" alt="SpecOps Agents in light theme" width="100%">
 </details>
 
 ## Antigravity
@@ -193,7 +193,7 @@ What to expect:
   itself updates as the agent works.
 - Token usage isn't recorded, so Antigravity cards show tool counts only.
 - The full IDE conversations (`conversations/*.pb`) are encrypted and not read.
-- None of this is a documented format. SpecOps Claude decodes it defensively and skips anything
+- None of this is a documented format. SpecOps Agents decodes it defensively and skips anything
   it doesn't recognise, but an Antigravity update can change it.
 
 ## How it works
@@ -212,7 +212,7 @@ flowchart LR
     H -- "Server-Sent Events" --> WEB["Web UI<br/>(vanilla JS)"]
 ```
 
-SpecOps Claude:
+SpecOps Agents:
 
 1. scans for recently modified transcripts every couple of seconds,
 2. tails each one (big transcripts are read from the last 4 MB, so they open instantly),
@@ -227,14 +227,14 @@ An agent that stops producing events is shown as idle after 3 minutes (30 minute
 running, since builds and test suites can be slow).
 
 > [!NOTE]
-> The transcript format is internal to Claude Code and undocumented. SpecOps Claude reads it
+> The transcript format is internal to Claude Code and undocumented. SpecOps Agents reads it
 > defensively: unknown events are skipped rather than crashing the viewer, but a Claude Code update
 > can still make something display oddly. Please
 > [open an issue](https://github.com/medeirosdev/SpecOps-Claude/issues) if it does.
 
 ## Privacy
 
-Transcripts and Antigravity logs hold your prompts, code, and command output. SpecOps Claude only
+Transcripts and Antigravity logs hold your prompts, code, and command output. SpecOps Agents only
 reads them locally, and the web UI binds to `127.0.0.1` by default.
 
 > [!WARNING]
