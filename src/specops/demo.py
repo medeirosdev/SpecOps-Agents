@@ -35,6 +35,8 @@ class Transcript:
         self.agent_id = agent_id
         self.model = "claude-opus-5-5" if agent_id is None else "claude-sonnet-5"
         self.clock: float | None = None  # fixed clock for back-dated history
+        # Tokens in the prompt so far; it grows with every turn, like a real conversation.
+        self.context = random.randint(60_000, 140_000) if agent_id is None else 12_000
         path.parent.mkdir(parents=True, exist_ok=True)
 
     def emit(self, obj: dict[str, Any]) -> None:
@@ -62,14 +64,23 @@ class Transcript:
                     "model": self.model,
                     "content": [block],
                     "stop_reason": stop,
-                    "usage": {
-                        "input_tokens": random.randint(2, 40),
-                        "output_tokens": random.randint(40, 900),
-                        "cache_read_input_tokens": random.randint(8000, 60000),
-                    },
+                    "usage": self._usage(),
                 },
             }
         )
+
+    def _usage(self) -> dict[str, int]:
+        if self.context > 700_000:  # as if the conversation had been compacted
+            self.context = random.randint(30_000, 50_000)
+        fresh, out = random.randint(300, 3000), random.randint(40, 900)
+        usage = {
+            "input_tokens": random.randint(2, 40),
+            "output_tokens": out,
+            "cache_read_input_tokens": self.context,
+            "cache_creation_input_tokens": fresh,
+        }
+        self.context += fresh + out
+        return usage
 
     def title(self, text: str) -> None:
         self.emit({"type": "ai-title", "aiTitle": text})
@@ -437,6 +448,45 @@ class Demo:
             t.turn_end()
             self.nap(18, 26)
 
+    def migrate(self) -> None:
+        """An agent retrying the same failing command: shows the loop warning."""
+        t = self.session("/home/you/code/billing")
+        self.nap(6, 9)
+        refused = (
+            "sqlalchemy.exc.OperationalError: connection to server at "
+            '"localhost" (127.0.0.1), port 5432 failed: Connection refused'
+        )
+        while not self._stop.is_set():
+            t.prompt("Run the new invoices migration against the local database")
+            t.title("Apply the invoices migration")
+            self.nap(1, 2)
+            for attempt in range(3):
+                if self._stop.is_set():
+                    return
+                t.think(
+                    "Apply it with alembic."
+                    if attempt == 0
+                    else "Connection refused. Probably a blip, trying again."
+                )
+                self.nap(1.5, 2.5)
+                tid = t.tool(
+                    "Bash", command="alembic upgrade head", description="Apply the migration"
+                )
+                self.nap(1.5, 2.5)
+                t.result(tid, refused, error=True)
+            t.think(
+                "Third identical failure. Retrying won't help: nothing is listening on 5432, "
+                "so Postgres isn't running. I should stop and ask rather than keep trying."
+            )
+            self.nap(8, 12)
+            t.say(
+                "Postgres isn't running on `localhost:5432`, so the migration can't connect. "
+                "Start it with `docker compose up -d db` and I'll apply the migration.",
+                final=True,
+            )
+            t.turn_end()
+            self.nap(25, 35)
+
     def history(self) -> None:
         """A finished session from earlier today, for a less empty sidebar."""
         t = self.session("/home/you/code/blog")
@@ -454,7 +504,7 @@ class Demo:
 
     def start(self) -> Path:
         self.history()
-        for target in (self.dashboard, self.api):
+        for target in (self.dashboard, self.api, self.migrate):
             threading.Thread(target=target, daemon=True).start()
         return self.root
 

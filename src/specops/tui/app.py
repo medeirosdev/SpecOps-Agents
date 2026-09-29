@@ -126,6 +126,12 @@ class AgentScreen(ModalScreen[None]):
             f"{r.tokens((tok.get('in') or 0) + (tok.get('cache') or 0))} in",
             style=r.MUTED,
         )
+        if a.get("cost") is not None:
+            head.append(f" · {r.cost_label(a)} at API prices", style=r.MUTED)
+        for extra in (r.context_text(a, 30), r.alerts_text(a)):
+            if extra:
+                head.append("\n")
+                head.append_text(extra)
         if a["kind"] == "sub" and a.get("task"):
             head.append("\n\nTask  ", style=f"bold {r.ACCENT}")
             head.append(r.one_line(a["task"], 400), style=r.TEXT_2)
@@ -297,6 +303,9 @@ class SpecOpsApp(App[None]):
         t.append(f" agent{'s' if working != 1 else ''} working  ", style=r.TEXT_2)
         t.append(f"{active}", style="bold")
         t.append(f" active  {len(sessions)} sessions", style=r.TEXT_2)
+        alerts = sum(s.get("alerts", 0) for s in sessions)
+        if alerts:
+            t.append(f"  ↻ {alerts} to check", style=f"bold {r.STATUS_COLOR['interrupted']}")
         t.append(
             "   follow " + ("on" if self.follow else "off"),
             style=r.STATUS_COLOR["waiting"] if self.follow else r.DIM,
@@ -363,6 +372,8 @@ class SpecOpsApp(App[None]):
         totals = f"   {len(agents)} agents · {tools_used} tool calls"
         if out or s.get("source", "claude") == "claude":
             totals += f" · {r.tokens(out)} tokens out"
+        if s.get("cost") is not None:
+            totals += f" · {r.cost_label(s)} at API prices"
         head.append(totals, style=r.MUTED)
         self.query_one("#shead", Static).update(head)
 

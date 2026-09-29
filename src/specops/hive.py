@@ -147,6 +147,7 @@ class Hive:
         if tail.offset == 0 and st.st_size > INITIAL_TAIL_BYTES:
             tail.offset = st.st_size - INITIAL_TAIL_BYTES
             skip_partial = True
+            tail.agent.partial = True
         try:
             with tail.path.open("rb") as fh:
                 fh.seek(tail.offset)

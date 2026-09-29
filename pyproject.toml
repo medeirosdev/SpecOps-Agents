@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "specops-agents"
-version = "0.2.0"
+version = "0.3.0"
 description = "Mission control for your Claude Code and Antigravity agents: watch every agent and subagent work in real time, in the terminal or in the browser."
 readme = "README.md"
 requires-python = ">=3.10"

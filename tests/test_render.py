@@ -120,3 +120,37 @@ def test_session_prompt_and_finished_row(session: dict) -> None:
     assert "shop" in text and "Fix flaky" in text
     row = render_text(r.finished_prompt(session["agents"][1]), width=140)
     assert "general-purpose" in row and "1 tools" in row
+
+
+@pytest.mark.parametrize(
+    ("n", "text"), [(None, ""), (0.004, "<$0.01"), (1.234, "$1.23"), (1234.5, "$1,234")]
+)
+def test_usd(n: float | None, text: str) -> None:
+    assert r.usd(n) == text
+
+
+def test_context_text() -> None:
+    assert r.context_text({"context": 0, "window": 200_000}) is None
+    t = r.context_text({"context": 900_000, "window": 1_000_000, "cache_hit": 0.914}, width=10)
+    assert t is not None
+    assert t.plain == "ctx " + "━" * 10 + " 900k/1.0M · 91% cached"
+
+
+def test_alerts_text() -> None:
+    assert r.alerts_text({"alerts": []}) is None
+    alerts = [
+        {"kind": "loop", "text": "Same call 3×", "verb": "Running", "target": "npm test"},
+        {"kind": "slow", "text": "No result for", "since": time.time() - 61, "target": "dev"},
+    ]
+    t = r.alerts_text({"alerts": alerts})
+    assert t is not None
+    assert t.plain.splitlines() == [
+        "↻ Same call 3×  Running npm test",
+        "◷ No result for 1m 01s  dev",
+    ]
+
+
+def test_cost_label() -> None:
+    assert r.cost_label({"cost": None}) == ""
+    assert r.cost_label({"cost": 1.5}) == "≈$1.50"
+    assert r.cost_label({"cost": 1.5, "partial": True}) == "≥$1.50"

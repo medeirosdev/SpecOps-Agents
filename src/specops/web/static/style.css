@@ -332,6 +332,29 @@ button.chip:hover { border-color: var(--border-strong); color: var(--text); }
 .trail i { width: 4px; border-radius: 2px; background: var(--cat); opacity: .8; }
 .trail i.err { background: var(--s-error); }
 
+/* signs of a stuck agent, and how full its context is */
+.alerts { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.alert {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 9px; min-width: 0; font-size: 12.5px;
+  --tone: var(--s-interrupted);
+  background: color-mix(in srgb, var(--tone) 10%, transparent); border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
+}
+.alert.failing { --tone: var(--s-error); }
+.alert svg { width: 14px; height: 14px; flex: none; fill: none; stroke: var(--tone); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.alert .txt { font-weight: 650; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.alert .target { font: 12px var(--mono); color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.ctx { margin-top: 12px; display: flex; align-items: center; gap: 9px; color: var(--muted); }
+.ctx .lbl { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.ctx .bar { flex: 1; height: 5px; border-radius: 5px; background: color-mix(in srgb, var(--text) 10%, transparent); overflow: hidden; }
+.ctx .bar i { display: block; height: 100%; background: var(--c-read); border-radius: inherit; transition: width .5s; }
+.ctx.warm .bar i { background: var(--s-tool); }
+.ctx.hot .bar i { background: var(--s-error); }
+.ctx .val { font: 11.5px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ctx.hot .val { color: var(--s-error); }
+.warn-badge { display: inline-flex; align-items: center; gap: 3px; margin-right: 7px; color: var(--s-interrupted); font-weight: 700; vertical-align: -1px; }
+.warn-badge svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.stats .warn b { color: var(--s-interrupted); }
+
 /* finished agents: compact rows */
 .finished { display: flex; flex-direction: column; gap: 6px; }
 .row {

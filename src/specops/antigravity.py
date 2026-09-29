@@ -33,7 +33,7 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 from . import tools
-from .model import Activity, Agent, FileTouch, Session, parse_ts
+from .model import Activity, Agent, FileTouch, Session, call_sig, parse_ts
 
 IDE = "antigravity"
 CLI = "antigravity-cli"
@@ -481,6 +481,7 @@ def _tool(agent: Agent, call: Call, ts: float) -> Activity:
         status="ok",
         tool_id=call.id,
         ended=ts,
+        sig=call_sig(call.name, call.args),
     )
     _add(agent, act)
     if call.name != "task_boundary":

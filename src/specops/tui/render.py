@@ -125,6 +125,21 @@ def tokens(n: int | None) -> str:
     return f"{n / 1_000_000:.1f}M"
 
 
+def usd(n: float | None) -> str:
+    if n is None:
+        return ""
+    if n < 0.01:
+        return "<$0.01"
+    return f"${n:.2f}" if n < 100 else f"${round(n):,}"
+
+
+def cost_label(x: dict[str, Any]) -> str:
+    """``≈$1.23``, or ``≥$1.23`` when only the end of a long transcript was read."""
+    if x.get("cost") is None:
+        return ""
+    return ("≥" if x.get("partial") else "≈") + usd(x["cost"])
+
+
 def model(m: str) -> str:
     x = re.match(r"^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-|$)", m or "")
     if not x:
@@ -169,10 +184,14 @@ def session_prompt(s: dict[str, Any], width: int = 30) -> Text:
     pad = max(1, width - 2 - min(len(s["project"]), name_w) - len(when))
     t.append(" " * pad + when, style=MUTED)
     t.append("\n  ")
+    alerts = s.get("alerts") or 0
+    if alerts:
+        t.append(f"↻{alerts} ", style=f"bold {STATUS_COLOR['interrupted']}")
     label = SOURCE_TAG.get(s.get("source", ""), "")
     if label:
         t.append(label + " ", style=f"bold {CAT_COLOR['web']}")
-    t.append(one_line(s["title"], width - 3 - len(label) - bool(label)), style=TEXT_2)
+    used = len(label) + bool(label) + (len(f"↻{alerts} ") if alerts else 0)
+    t.append(one_line(s["title"], width - 3 - used), style=TEXT_2)
     if s.get("agent_count", 1) > 1:
         t.append("\n  ")
         for a in s["agents"][: width - 4]:
@@ -231,6 +250,55 @@ def now_line(a: dict[str, Any]) -> Table:
     elapsed = dur(time.time() - since) if since and status not in ("done",) else ""
     grid.add_row(Text(glyph, style=f"bold {color}"), line, Text(elapsed, style=MUTED))
     return grid
+
+
+ALERT_GLYPH = {"loop": "↻", "failing": "✗", "churn": "✎", "slow": "◷"}
+
+
+def alerts_text(a: dict[str, Any]) -> Text | None:
+    """Signs the agent is stuck, one per line."""
+    alerts = a.get("alerts") or []
+    if not alerts:
+        return None
+    out = Text()
+    for i, x in enumerate(alerts):
+        color = STATUS_COLOR["error" if x["kind"] == "failing" else "interrupted"]
+        if i:
+            out.append("\n")
+        out.append(ALERT_GLYPH.get(x["kind"], "!") + " ", style=f"bold {color}")
+        text = x["text"]
+        if x.get("since"):
+            text += " " + dur(time.time() - x["since"])
+        out.append(text, style=f"bold {color}")
+        what = " ".join(p for p in (x.get("verb"), x.get("target")) if p)
+        if what:
+            out.append("  " + one_line(what, 80), style=TEXT_2)
+    return out
+
+
+def context_text(a: dict[str, Any], width: int = 20) -> Text | None:
+    """How full the context window is, plus cache hits and cost."""
+    used, window = a.get("context") or 0, a.get("window") or 0
+    if not used or not window:
+        return None
+    share = min(1.0, used / window)
+    color = (
+        STATUS_COLOR["error"]
+        if share >= 0.8
+        else STATUS_COLOR["tool"]
+        if share >= 0.5
+        else CAT_COLOR["read"]
+    )
+    filled = round(width * share)
+    out = Text.assemble(
+        ("ctx ", MUTED),
+        ("━" * filled, color),
+        ("━" * (width - filled), "#3a342c"),
+        (f" {tokens(used)}/{tokens(window)}", color if share >= 0.8 else MUTED),
+    )
+    if a.get("cache_hit") is not None:
+        out.append(f" · {round(a['cache_hit'] * 100)}% cached", style=MUTED)
+    return out
 
 
 def thought_text(a: dict[str, Any], limit: int = 260) -> Text | None:
@@ -312,7 +380,11 @@ def trail(a: dict[str, Any], n: int = 28) -> Text:
 
 
 def card_body(a: dict[str, Any], wide: bool = False) -> RenderableType:
-    parts: list[RenderableType] = [now_line(a)]
+    parts: list[RenderableType] = []
+    alerts = alerts_text(a)
+    if alerts:
+        parts.append(alerts)
+    parts.append(now_line(a))
     thought = thought_text(a, 360 if wide else 200)
     if thought:
         parts.append(thought)
@@ -320,12 +392,17 @@ def card_body(a: dict[str, Any], wide: bool = False) -> RenderableType:
     todos = todos_render(a)
     if todos:
         parts.append(todos)
+    context = context_text(a, 24 if wide else 14)
+    if context:
+        parts.append(context)
     foot = Table.grid(expand=True)
     foot.add_column()
     foot.add_column(justify="right")
     counts = f"{a.get('tool_count', 0)} tools"
     if a.get("source", "claude") not in SOURCE_NAME:  # Antigravity doesn't log token usage
         counts += f" · {tokens((a.get('tokens') or {}).get('out'))} tok"
+    if a.get("cost") is not None:
+        counts += f" · {cost_label(a)}"
     foot.add_row(Text(counts, style=MUTED), trail(a, 40 if wide else 22))
     parts.append(foot)
     return Group(*parts)
@@ -358,7 +435,10 @@ def finished_prompt(a: dict[str, Any]) -> Text:
     t.append("✓ " if a["status"] == "done" else "● ", style=color)
     t.append(f"{a['name']:<16}", style="bold")
     t.append(one_line(a.get("description") or a.get("task", ""), 50), style=TEXT_2)
-    t.append(f"   {a.get('tool_count', 0)} tools · {took} · {ago(a.get('last_ts'))}", style=MUTED)
+    cost = f" · {cost_label(a)}" if a.get("cost") is not None else ""
+    t.append(
+        f"   {a.get('tool_count', 0)} tools · {took}{cost} · {ago(a.get('last_ts'))}", style=MUTED
+    )
     return t
 
 

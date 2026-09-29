@@ -4,7 +4,7 @@ import json
 import os
 from typing import Any
 
-from specops.model import IDLE_AFTER, IDLE_AFTER_TOOL, Agent, Session, parse_ts
+from specops.model import IDLE_AFTER, IDLE_AFTER_TOOL, SLOW_TOOL, Agent, Session, parse_ts
 
 from .conftest import FIXTURES, PROJECT, SESSION_ID
 
@@ -188,7 +188,7 @@ def test_usage_is_counted_once_per_message_id() -> None:
         usage = {"input_tokens": 3, "output_tokens": 10, "cache_read_input_tokens": 5}
         event["message"]["usage"] = usage
         a.ingest(event)
-    assert a.tokens() == {"in": 3, "out": 10, "cache": 5}
+    assert a.tokens() == {"in": 3, "out": 10, "cache": 5, "cache_read": 5, "cache_write": 0}
 
 
 def test_status_goes_idle_after_silence() -> None:
@@ -253,6 +253,7 @@ def test_fixture_session_end_to_end() -> None:
         "description",
         "status",
         "last_ts",
+        "alerts",
     }
     json.dumps(d)  # snapshots must be JSON serialisable
 
@@ -274,3 +275,138 @@ def test_session_status_is_working_if_any_agent_works() -> None:
     s = fixture_session()
     s.subagents["a1b2c3"].ingest(user("more work", at=40))
     assert s.status(T0 + 41) == "working"
+
+
+# --------------------------------------------------------------------------- context & cost
+def with_usage(event: dict[str, Any], **usage: Any) -> dict[str, Any]:
+    event["message"]["usage"] = usage
+    return event
+
+
+def test_context_is_the_latest_prompt_and_cost_follows_the_model() -> None:
+    a = main_agent()
+    text = {"type": "text", "text": "hi"}
+    a.ingest(with_usage(assistant(text, mid="m1"), input_tokens=100, output_tokens=1000))
+    a.ingest(
+        with_usage(
+            assistant(text, at=1, mid="m2"),
+            input_tokens=10,
+            output_tokens=0,
+            cache_read_input_tokens=300_000,
+            cache_creation_input_tokens=5_000,
+            cache_creation={"ephemeral_1h_input_tokens": 1_000},
+        )
+    )
+    assert a.context == 305_010
+    assert a.tokens()["cache_write"] == 5_000 and a.tokens()["cache_read"] == 300_000
+    # opus 5.5: $4 in, $20 out, $0.20 cache read, writes at 1.25x (5m) and 2x (1h) input
+    expected = (110 * 4 + 1000 * 20 + 300_000 * 0.2 + 4_000 * 5 + 1_000 * 8) / 1e6
+    assert abs(a.cost() - expected) < 1e-9
+    assert abs(a.cache_hit() - 300_000 / 305_110) < 1e-9
+    d = a.to_dict(T0 + 2)
+    assert d["context"] == 305_010 and d["window"] == 1_000_000
+
+
+def test_unknown_model_has_no_cost() -> None:
+    a = main_agent()
+    event = with_usage(assistant({"type": "text", "text": "hi"}), input_tokens=5, output_tokens=5)
+    event["message"]["model"] = "gemini-3-pro"
+    a.ingest(event)
+    assert a.cost() is None and a.tokens()["out"] == 5
+    assert Session(id="s", project_dir="p", main=a).cost() is None
+
+
+# --------------------------------------------------------------------------- alerts
+def run_calls(a: Agent, calls: list[tuple[str, dict[str, Any], bool]], start: int = 0) -> float:
+    """Ingest each (tool, input, failed) call with its result; returns the last timestamp."""
+    at = float(start)
+    for i, (name, args, failed) in enumerate(calls):
+        tid = f"t{start + i}"
+        a.ingest(assistant(tool_use(tid, name, **args), at=at, stop="tool_use", mid=tid))
+        a.ingest(user(tool_result(tid, "boom" if failed else "ok", error=failed), at=at + 0.5))
+        at += 1
+    return at
+
+
+def kinds(a: Agent, now: float) -> list[str]:
+    return [x["kind"] for x in a.alerts(now)]
+
+
+def test_same_call_repeated_without_edits_is_a_loop() -> None:
+    a = main_agent()
+    build = ("Bash", {"command": "npm run build"}, False)
+    now = run_calls(a, [build, ("Read", {"file_path": "/w/a.ts"}, False), build, build])
+    alert = a.alerts(now)[0]
+    assert alert["kind"] == "loop" and "3×" in alert["text"] and alert["verb"] == "Running"
+
+
+def test_an_edit_between_repeats_is_progress_not_a_loop() -> None:
+    a = main_agent()
+    test = ("Bash", {"command": "pytest"}, False)
+    edit = ("Edit", {"file_path": "/w/a.py", "old_string": "a", "new_string": "b"}, False)
+    now = run_calls(a, [test, edit, test, edit, test])
+    assert a.alerts(now) == []
+
+
+def test_polling_tools_may_repeat() -> None:
+    a = main_agent()
+    poll = ("BashOutput", {"bash_id": "1"}, False)
+    now = run_calls(a, [poll] * 5)
+    assert a.alerts(now) == []
+
+
+def test_the_same_failure_despite_edits() -> None:
+    a = main_agent()
+    test = ("Bash", {"command": "pytest"}, True)
+    now = run_calls(
+        a,
+        [
+            test,
+            ("Edit", {"file_path": "/w/a.py", "old_string": "1"}, False),
+            test,
+            ("Edit", {"file_path": "/w/a.py", "old_string": "2"}, False),
+            test,
+        ],
+    )
+    assert kinds(a, now) == ["failing"]
+    assert a.alerts(now)[0]["text"] == "Failed 3 times"
+
+
+def test_a_streak_of_different_failures() -> None:
+    a = main_agent()
+    calls = [("Bash", {"command": f"try {i}"}, True) for i in range(3)]
+    now = run_calls(a, calls)
+    assert a.alerts(now) == [{"kind": "failing", "text": "Last 3 tool calls failed"}]
+
+
+def test_one_file_edited_over_and_over() -> None:
+    a = main_agent()
+    a.cwd = "/w"
+    calls = [("Edit", {"file_path": "/w/app.js", "old_string": str(i)}, False) for i in range(6)]
+    now = run_calls(a, calls)
+    alert = a.alerts(now)[0]
+    assert alert["kind"] == "churn" and alert["target"] == "app.js"
+
+
+def test_a_call_that_never_returns() -> None:
+    a = main_agent()
+    a.ingest(assistant(tool_use("t1", "Bash", command="npm run dev"), stop="tool_use"))
+    a.ingest(assistant(tool_use("t2", "Agent", prompt="go"), stop="tool_use", mid="m2"))
+    assert a.alerts(T0 + 60) == []
+    late = T0 + SLOW_TOOL + 1
+    assert [(x["kind"], x["since"]) for x in a.alerts(late)] == [("slow", T0)]
+
+
+def test_agents_that_stopped_working_raise_nothing() -> None:
+    a = main_agent()
+    build = ("Bash", {"command": "make"}, True)
+    now = run_calls(a, [build] * 4)
+    a.ingest(assistant({"type": "text", "text": "giving up"}, at=now, stop="end_turn", mid="end"))
+    assert a.status(now) == "waiting" and a.alerts(now) == []
+
+
+def test_antigravity_calls_are_never_slow() -> None:
+    # Its latest calls only look pending until the next step is logged.
+    a = Agent(id="g", session_id="g", kind="main", source="antigravity")
+    a.ingest(assistant(tool_use("t1", "Bash", command="npm run dev"), stop="tool_use"))
+    assert a.alerts(T0 + SLOW_TOOL + 1) == []

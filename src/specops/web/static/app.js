@@ -52,6 +52,7 @@ const ICONS = {
   copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   moon: '<path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/>',
+  loop: '<path d="m17 2 4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15"/><path d="m7 22-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>',
 };
 const icon = (name) => `<svg viewBox="0 0 24 24">${ICONS[name] || ICONS.other}</svg>`;
 const mark = () => '<svg viewBox="0 0 32 32"><use href="#mark"/></svg>';
@@ -100,6 +101,17 @@ function tokens(n) {
   if (n < 1e6) return (n / 1000).toFixed(n < 1e4 ? 1 : 0) + "k";
   return (n / 1e6).toFixed(1) + "M";
 }
+function usd(n) {
+  if (n == null) return "";
+  if (n < 0.01) return "<$0.01";
+  return "$" + (n < 100 ? n.toFixed(2) : Math.round(n).toLocaleString());
+}
+const COST_HINT = "Estimated at API list prices. On a Pro or Max plan usage isn't billed per token.";
+const PARTIAL_HINT = " Only the end of this long transcript was read, so this is a lower bound.";
+/** "≈ $1.23", or "≥ $1.23" when part of the transcript wasn't read. */
+const costLabel = (x) => `${x.partial ? "≥" : "≈"} ${usd(x.cost)}`;
+const costHint = (x) => COST_HINT + (x.partial ? PARTIAL_HINT : "");
+const pct = (x) => Math.round(x * 100) + "%";
 function dur(sec) {
   sec = Math.max(0, Math.floor(sec));
   if (sec < 60) return sec + "s";
@@ -198,9 +210,11 @@ function renderStats() {
   const ss = state.snap.sessions;
   const working = ss.reduce((n, s) => n + (s.working || 0), 0);
   const active = ss.filter((s) => s.status === "working").length;
+  const alerts = ss.reduce((n, s) => n + (s.alerts || 0), 0);
   setHTML(
     $("#stats"),
-    `<span class="${working ? "hot" : ""}"><b>${working}</b> agent${working === 1 ? "" : "s"} working</span>` +
+    (alerts ? `<span class="warn" title="Agents that look stuck or in a loop"><b>${alerts}</b> to check</span>` : "") +
+      `<span class="${working ? "hot" : ""}"><b>${working}</b> agent${working === 1 ? "" : "s"} working</span>` +
       `<span><b>${active}</b> active session${active === 1 ? "" : "s"}</span>` +
       `<span><b>${ss.length}</b> total</span>`
   );
@@ -231,7 +245,7 @@ function renderSessions() {
         .join("");
       return `<span class="dot ${s.status}"></span>
         <span class="proj">${esc(s.project)}</span>
-        <span class="when">${liveAgo(s.last_ts)}</span>
+        <span class="when">${s.alerts ? `<span class="warn-badge" title="${s.alerts} sign${s.alerts === 1 ? "" : "s"} of a stuck agent">${icon("loop")}${s.alerts}</span>` : ""}${liveAgo(s.last_ts)}</span>
         <span class="title">${srcTag(s)}${esc(s.title)}</span>
         ${s.agent_count > 1 ? `<span class="ants">${ants}</span>` : ""}`;
     },
@@ -290,6 +304,7 @@ function renderMain() {
         <div class="total"><b>${d.agents.length}</b><span>agents</span></div>
         <div class="total"><b>${toolsUsed}</b><span>tool calls</span></div>
         ${tok || !SOURCES[d.source] ? `<div class="total"><b>${tokens(tok)}</b><span>tokens out</span></div>` : ""}
+        ${d.cost != null ? `<div class="total" title="${costHint(d)}"><b>${costLabel(d)}</b><span>API cost</span></div>` : ""}
       </div>
     </div>`
   );
@@ -398,25 +413,51 @@ function avatar(a) {
   return `<span class="avatar" style="--hue:${hueFor(a)}">${mark()}</span>`;
 }
 
+const ALERT_ICON = { loop: "loop", failing: "error", churn: "edit", slow: "clock" };
+function alerts(a) {
+  const list = a.alerts || [];
+  if (!list.length) return "";
+  return `<div class="alerts">${list
+    .map((x) => {
+      const since = x.since ? ` <span class="tick" data-since="${x.since}"></span>` : "";
+      const what = [x.verb, x.target].filter(Boolean).join(" ");
+      return `<div class="alert ${esc(x.kind)}">${icon(ALERT_ICON[x.kind])}<span class="txt">${esc(x.text)}${since}</span>${
+        what ? `<span class="target" title="${esc(what)}">${esc(what)}</span>` : ""
+      }</div>`;
+    })
+    .join("")}</div>`;
+}
+
+function contextMeter(a) {
+  if (!a.context || !a.window) return "";
+  const used = a.context / a.window;
+  const level = used >= 0.8 ? " hot" : used >= 0.5 ? " warm" : "";
+  const cache = a.cache_hit != null ? `, ${pct(a.cache_hit)} of prompt tokens read from cache` : "";
+  return `<div class="ctx${level}" title="${a.context.toLocaleString()} of ${a.window.toLocaleString()} context tokens in use${cache}">
+    <span class="lbl">Context</span><span class="bar"><i style="width:${Math.min(100, used * 100)}%"></i></span>
+    <span class="val">${tokens(a.context)} / ${tokens(a.window)}</span></div>`;
+}
+
 function card(a, queen) {
   const desc = a.kind === "main" ? a.title || "Main agent" : a.description || a.task.split("\n")[0];
   const head = `<div class="card-head">${avatar(a)}
       <div class="who"><div class="name">${esc(a.name)}${a.model ? `<span class="model">${esc(model(a.model))}</span>` : ""}</div>
       <div class="desc" title="${esc(desc)}">${esc(desc)}</div></div>
       ${pill(a)}</div>`;
-  const foot = `<div class="card-foot"><span>${a.tool_count} tools</span>${SOURCES[a.source] ? "" : `<span>${tokens(a.tokens?.out)} tok</span>`}${trail(a)}</div>`;
+  const cost = a.cost != null ? `<span title="${costHint(a)}">${costLabel(a)}</span>` : "";
+  const foot = `<div class="card-foot"><span>${a.tool_count} tools</span>${SOURCES[a.source] ? "" : `<span>${tokens(a.tokens?.out)} tok</span>`}${cost}${trail(a)}</div>`;
   if (queen) {
-    return `${head}<div class="qgrid">
-      <div>${nowLine(a)}${thought(a)}</div><div>${folder(a, 10)}${todos(a)}</div></div>${foot}`;
+    return `${head}${alerts(a)}<div class="qgrid">
+      <div>${nowLine(a)}${thought(a)}${contextMeter(a)}</div><div>${folder(a, 10)}${todos(a)}</div></div>${foot}`;
   }
-  return `${head}${nowLine(a)}${thought(a)}${folder(a, 5)}${todos(a)}${foot}`;
+  return `${head}${alerts(a)}${nowLine(a)}${thought(a)}${folder(a, 5)}${todos(a)}${contextMeter(a)}${foot}`;
 }
 
 function row(a) {
   const took = a.started && a.last_ts ? dur(a.last_ts - a.started) : "";
   return `${avatar(a)}<span class="name">${esc(a.name)}</span>
     <span class="desc" title="${esc(a.description)}">${esc(a.description || a.task.split("\n")[0])}</span>
-    <span class="meta">${a.tool_count} tools · ${took}</span>
+    <span class="meta">${a.tool_count} tools · ${took}${a.cost != null ? ` · ${costLabel(a)}` : ""}</span>
     <span class="meta">${liveAgo(a.last_ts)}</span>`;
 }
 
@@ -460,7 +501,10 @@ function renderDrawer(fresh = false) {
       <button class="chip" data-copy="${esc(a.cwd)}" title="Copy path">${icon("folder")}<span class="mono">${esc(tilde(a.cwd))}</span></button>
       ${a.branch ? `<span class="chip">${icon("branch")}${esc(a.branch)}</span>` : ""}
       <span class="chip">${a.tool_count} tools${SOURCES[a.source] ? "" : ` · ${tokens(a.tokens.out)} out · ${tokens(a.tokens.in + a.tokens.cache)} in`}</span>
+      ${a.cache_hit != null ? `<span class="chip" title="Share of prompt tokens read from the cache">${pct(a.cache_hit)} cached</span>` : ""}
+      ${a.cost != null ? `<span class="chip" title="${costHint(a)}">${costLabel(a)}</span>` : ""}
     </div></div>
+    ${alerts(a)}${contextMeter(a)}
     ${a.kind === "sub" && a.task ? `<div class="task">${esc(a.task)}</div>` : ""}
     <div class="tabs">${["timeline", "thoughts", "tools", "files"]
       .map((t) => `<button class="tab ${state.tab === t ? "on" : ""}" data-tab="${t}">${t[0].toUpperCase() + t.slice(1)}${t === "files" ? ` (${a.file_count})` : ""}</button>`)

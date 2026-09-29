@@ -178,3 +178,18 @@ def test_background_thread_start_stop(projects: Path) -> None:
         time.sleep(0.01)
     h.stop()
     assert SESSION_ID in h.sessions
+
+
+def test_only_the_tail_of_a_big_transcript_is_read(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(hive_mod, "INITIAL_TAIL_BYTES", 200)
+    project = tmp_path / "-w"
+    project.mkdir()
+    (project / "big.jsonl").write_text(line(prompt("old " * 100)) + line(prompt("new")))
+    (project / "small.jsonl").write_text(line(prompt("hi")))
+    h = make_hive(tmp_path)
+    h.poll()
+    big, small = h.sessions["big"], h.sessions["small"]
+    assert big.main.last_prompt == "new" and big.main.partial
+    assert not small.main.partial
+    sessions = {x["id"]: x for x in h.snapshot("big")["sessions"]}
+    assert sessions["big"]["partial"] is True and sessions["small"]["partial"] is False

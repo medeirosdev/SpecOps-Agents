@@ -13,7 +13,7 @@ Watch every agent and subagent work in real time, in the terminal or in the brow
 [![License: MIT](https://img.shields.io/badge/license-MIT-7cc47f)](LICENSE)
 ![No config](https://img.shields.io/badge/config-none-b48ead)
 
-[Quick start](#quick-start) · [Features](#features) · [Usage](#usage) · [Skills](#skills) · [Antigravity](#antigravity) · [How it works](#how-it-works) · [Privacy](#privacy) · [Development](#development)
+[Quick start](#quick-start) · [Features](#features) · [Usage](#usage) · [Context, cost, warnings](#context-cost-and-warnings) · [Skills](#skills) · [Antigravity](#antigravity) · [How it works](#how-it-works) · [Privacy](#privacy) · [Development](#development)
 
 <br>
 
@@ -100,6 +100,22 @@ with Follow jumping to whichever agent is working.
 </td>
 </tr>
 <tr>
+<td valign="top">
+
+### Context and cost
+A bar shows how full each agent's context window is, next to its cache hit rate and what the
+session would cost at API prices, per agent and in total.
+
+</td>
+<td valign="top">
+
+### Stuck agent warnings
+An agent that repeats the same call without changing anything, keeps failing, rewrites one file
+over and over, or waits on a command that never returns gets flagged.
+
+</td>
+</tr>
+<tr>
 <td colspan="2" valign="top">
 
 ### One skill library for both
@@ -181,6 +197,35 @@ Click any agent card (or a finished agent) for its full timeline, with tool inpu
 <br>
 <img src="docs/web-light.png" alt="SpecOps Agents in light theme" width="100%">
 </details>
+
+## Context, cost, and warnings
+
+**Context.** Each card shows how many tokens were in the agent's latest request, against the
+model's context window (1M for current Opus, Sonnet and Fable models, 200K for Haiku 4.5 and
+models SpecOps doesn't know). The bar turns orange past 50% and red past 80%, which is when
+Claude Code is about to compact the conversation and details start getting summarized away.
+Hover it for the share of prompt tokens read from the prompt cache.
+
+**Cost.** Token usage from the transcript is priced at Anthropic's API list prices (cache reads
+and 5-minute / 1-hour cache writes at their own rates, fast mode at 2x). It's an estimate: on a
+Pro or Max plan, Claude Code usage isn't billed per token, so read it as "what this would cost
+on the API". Models without a known price show no cost rather than a guess; prices live in
+[`pricing.py`](src/specops/pricing.py). Transcripts over 4 MB are only read from the end, so their
+cost is shown as a lower bound (`≥ $12.40`).
+
+**Warnings.** While an agent is working, its recent tool calls are checked for:
+
+| Warning | When |
+| --- | --- |
+| Same call repeated | the identical call (same tool, same input) 3 times in the last 10 calls, with no file edited in between |
+| Keeps failing | the same call failing 3 times in the last 15, even with edits between tries, or 3 failed calls in a row |
+| One file over and over | the same file edited 6 times in the last 12 calls |
+| No result | a call still running after 10 minutes (subagents and questions to you are exempt) |
+
+Polling tools (`BashOutput`, `Monitor`, `TaskOutput`, ...) are allowed to repeat. Antigravity
+doesn't log tool results, so its agents are only checked for repeated calls and repeated edits. Flagged
+sessions get a ↻ badge in the list, and the top bar counts how many agents need a look.
+`specops --demo` includes an agent that retries a failing migration, to see one.
 
 ## Skills
 

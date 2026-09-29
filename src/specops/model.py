@@ -8,14 +8,15 @@ crashing the viewer.
 
 from __future__ import annotations
 
+import json
 import os
 import time
-from collections import deque
+from collections import Counter, deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from . import tools
+from . import pricing, tools
 
 MAX_ACTIVITIES = 400
 # Fields that say who an agent is, as opposed to what was learnt from its transcript.
@@ -44,6 +45,20 @@ IDLE_AFTER = 180.0
 IDLE_AFTER_TOOL = 1800.0
 
 INTERRUPT_MARKERS = ("[Request interrupted by user", "[Request cancelled by user")
+
+# Signs that a working agent is stuck. Each looks at its most recent tool calls.
+LOOP_WINDOW = 10  # the same call this many times with no edit in between...
+LOOP_REPEATS = 3  # ...at least this often
+FAIL_STREAK = 3  # this many failed calls in a row
+SAME_FAIL_WINDOW = 15  # the same call failing...
+SAME_FAIL_REPEATS = 3  # ...this often, even with edits in between
+CHURN_WINDOW = 12  # one file edited...
+CHURN_EDITS = 6  # ...this often
+SLOW_TOOL = 600.0  # a call with no result after this many seconds
+# Tools that are meant to be called over and over (polling) or to take long (waiting on
+# a subagent or on you), so repeating them or waiting on them says nothing.
+POLLING_TOOLS = {"BashOutput", "Monitor", "TaskOutput", "TodoWrite", "ScheduleWakeup"}
+PATIENT_CATEGORIES = {"agent", "ask"}
 
 
 def parse_ts(value: Any) -> float | None:
@@ -84,6 +99,15 @@ def _is_noise(text: str) -> bool:
     )
 
 
+def call_sig(name: str, args: Any) -> str:
+    """Identifies a tool call by name and input, so identical calls can be spotted."""
+    return f"{name}:{hash(json.dumps(args, sort_keys=True, default=str))}"
+
+
+def _alert(kind: str, text: str, act: Activity) -> dict[str, Any]:
+    return {"kind": kind, "text": text, "verb": act.verb, "target": act.target}
+
+
 @dataclass
 class Activity:
     kind: str  # prompt | thinking | text | tool | error | command | interrupt
@@ -99,6 +123,7 @@ class Activity:
     tool_id: str = ""
     ended: float | None = None
     agent_ref: str = ""  # tool spawned this subagent
+    sig: str = ""  # tool name + input, to spot identical calls
 
     def to_dict(self, compact: bool = False) -> dict[str, Any]:
         d = {
@@ -154,10 +179,14 @@ class Agent:
     pending: dict[str, Activity] = field(default_factory=dict)
     files: dict[str, FileTouch] = field(default_factory=dict)
     todos: list[dict[str, str]] = field(default_factory=list)
-    usage: dict[str, dict[str, int]] = field(default_factory=dict)
+    usage: dict[str, dict[str, Any]] = field(default_factory=dict)
+    context: int = 0  # tokens in the prompt of the latest request
+    partial: bool = False  # only the end of the transcript was read, so totals fall short
     tool_count: int = 0
     last_thought: Activity | None = None
     last_prompt: str = ""
+    _usage_version: int = field(default=0, repr=False)
+    _totals: tuple[int, dict[str, Any]] | None = field(default=None, repr=False)
 
     def reset(self) -> None:
         """Forget everything ingested (the transcript was rewritten), keeping who this agent is."""
@@ -198,12 +227,7 @@ class Agent:
             self.model = msg["model"]
         usage = msg.get("usage")
         if isinstance(usage, dict) and msg.get("id"):
-            self.usage[msg["id"]] = {
-                "in": int(usage.get("input_tokens") or 0),
-                "out": int(usage.get("output_tokens") or 0),
-                "cache": int(usage.get("cache_read_input_tokens") or 0)
-                + int(usage.get("cache_creation_input_tokens") or 0),
-            }
+            self._ingest_usage(msg["id"], usage)
         if obj.get("isApiErrorMessage"):
             self._add(Activity("error", ts, text=_text_of(msg.get("content"))))
             self.phase = "error"
@@ -234,6 +258,25 @@ class Agent:
         if stop in ("end_turn", "stop_sequence", "max_tokens", "refusal") and not self.pending:
             self.phase = "waiting" if self.kind == "main" else "done"
 
+    def _ingest_usage(self, msg_id: str, usage: dict[str, Any]) -> None:
+        creation = usage.get("cache_creation")
+        write = int(usage.get("cache_creation_input_tokens") or 0)
+        write_1h = 0
+        if isinstance(creation, dict):
+            write_1h = min(write, int(creation.get("ephemeral_1h_input_tokens") or 0))
+        entry = {
+            "model": self.model,
+            "in": int(usage.get("input_tokens") or 0),
+            "out": int(usage.get("output_tokens") or 0),
+            "cache_read": int(usage.get("cache_read_input_tokens") or 0),
+            "cache_write_5m": write - write_1h,
+            "cache_write_1h": write_1h,
+            "fast": usage.get("speed") == "fast",
+        }
+        self.usage[msg_id] = entry
+        self.context = entry["in"] + entry["cache_read"] + write
+        self._usage_version += 1
+
     def _start_tool(self, block: dict[str, Any], ts: float) -> None:
         name = block.get("name") or "?"
         args = block.get("input") or {}
@@ -248,6 +291,7 @@ class Agent:
             category=s.category,
             status="running",
             tool_id=block.get("id") or "",
+            sig=call_sig(name, args),
         )
         self._add(act)
         self.tool_count += 1
@@ -350,11 +394,102 @@ class Agent:
         return self.activities[-1] if self.activities else None
 
     def tokens(self) -> dict[str, int]:
-        total = {"in": 0, "out": 0, "cache": 0}
+        return self._usage_totals()["tokens"]
+
+    def cost(self) -> float | None:
+        """API-equivalent USD for this agent, or None if no request had a known price."""
+        return self._usage_totals()["cost"]
+
+    def _usage_totals(self) -> dict[str, Any]:
+        if self._totals and self._totals[0] == self._usage_version:
+            return self._totals[1]
+        tokens = {"in": 0, "out": 0, "cache": 0, "cache_read": 0, "cache_write": 0}
+        usd: float | None = None
         for u in self.usage.values():
-            for k in total:
-                total[k] += u.get(k, 0)
-        return total
+            write = u["cache_write_5m"] + u["cache_write_1h"]
+            tokens["in"] += u["in"]
+            tokens["out"] += u["out"]
+            tokens["cache_read"] += u["cache_read"]
+            tokens["cache_write"] += write
+            tokens["cache"] += u["cache_read"] + write
+            spent = pricing.cost(
+                u["model"],
+                input=u["in"],
+                output=u["out"],
+                cache_read=u["cache_read"],
+                cache_write_5m=u["cache_write_5m"],
+                cache_write_1h=u["cache_write_1h"],
+                fast=u["fast"],
+            )
+            if spent is not None:
+                usd = (usd or 0.0) + spent
+        totals = {"tokens": tokens, "cost": usd}
+        self._totals = (self._usage_version, totals)
+        return totals
+
+    def cache_hit(self) -> float | None:
+        """Share of prompt tokens served from the cache."""
+        t = self.tokens()
+        prompt = t["in"] + t["cache"]
+        return t["cache_read"] / prompt if prompt else None
+
+    def alerts(self, now: float) -> list[dict[str, Any]]:
+        """Signs that a working agent is going in circles or hanging, most telling first."""
+        if self.status(now) not in WORKING:
+            return []
+        calls = [a for a in self.activities if a.kind == "tool"][-max(SAME_FAIL_WINDOW, 20) :]
+        found: list[dict[str, Any]] = []
+
+        # The same call again and again, with nothing edited in between.
+        unchanged: list[Activity] = []
+        for act in reversed(calls):
+            if act.category == "edit" or len(unchanged) == LOOP_WINDOW:
+                break
+            unchanged.append(act)
+        repeats = Counter(a.sig for a in unchanged if a.sig and a.tool not in POLLING_TOOLS)
+        loop_sig, n = repeats.most_common(1)[0] if repeats else ("", 0)
+        if n >= LOOP_REPEATS:
+            act = next(a for a in unchanged if a.sig == loop_sig)
+            found.append(_alert("loop", f"Same call {n}× with no edits in between", act))
+        else:
+            loop_sig = ""
+
+        # The same call failing over and over, even if the agent edits between tries.
+        recent = calls[-SAME_FAIL_WINDOW:]
+        failures = Counter(a.sig for a in recent if a.status == "error" and a.sig != loop_sig)
+        fail_sig, n = failures.most_common(1)[0] if failures else ("", 0)
+        if n >= SAME_FAIL_REPEATS:
+            act = next(a for a in reversed(recent) if a.sig == fail_sig)
+            found.append(_alert("failing", f"Failed {n} times", act))
+
+        # Everything failing lately, whatever it is.
+        streak = 0
+        for act in reversed(calls):
+            if act.status == "running":
+                continue
+            if act.status != "error":
+                break
+            streak += 1
+        if streak >= FAIL_STREAK and not found:
+            found.append({"kind": "failing", "text": f"Last {streak} tool calls failed"})
+
+        # One file rewritten again and again.
+        edits = Counter(
+            a.detail for a in calls[-CHURN_WINDOW:] if a.category == "edit" and a.detail
+        )
+        path, n = edits.most_common(1)[0] if edits else ("", 0)
+        if n >= CHURN_EDITS:
+            text = f"Edited {n} times in the last {min(len(calls), CHURN_WINDOW)} calls"
+            found.append({"kind": "churn", "text": text, "target": tools.relpath(path, self.cwd)})
+
+        # A call that never came back. Antigravity only logs a call once the next step starts,
+        # so a call of its latest reply can look unanswered long after it finished.
+        for act in self.pending.values() if self.source == "claude" else ():
+            if act.category in PATIENT_CATEGORIES or act.tool in POLLING_TOOLS:
+                continue
+            if now - act.ts > SLOW_TOOL:
+                found.append(_alert("slow", "No result for", act) | {"since": act.ts})
+        return found
 
     def name(self) -> str:
         if self.kind == "main":
@@ -371,6 +506,7 @@ class Agent:
             "description": self.description,
             "status": self.status(now),
             "last_ts": self.last_ts,
+            "alerts": len(self.alerts(now)),
         }
 
     def to_dict(self, now: float, detail: bool = True) -> dict[str, Any]:
@@ -414,6 +550,12 @@ class Agent:
             "file_count": file_count,
             "todos": self.todos,
             "tokens": self.tokens(),
+            "context": self.context,
+            "window": pricing.window_for(self.model, self.context),
+            "cost": self.cost(),
+            "partial": self.partial,
+            "cache_hit": self.cache_hit(),
+            "alerts": self.alerts(now),
             "tool_count": self.tool_count,
         }
 
@@ -473,6 +615,10 @@ class Session:
         main = self.main.status(now)
         return main if main not in ("done",) else "waiting"
 
+    def cost(self) -> float | None:
+        known = [c for c in (a.cost() for a in self.agents) if c is not None]
+        return sum(known) if known else None
+
     def title(self) -> str:
         if self.main.title:
             return self.main.title
@@ -492,6 +638,9 @@ class Session:
             "last_ts": self.last_ts,
             "started": self.main.started,
             "working": sum(1 for a in self.agents if a.status(now) in WORKING),
+            "alerts": sum(len(a.alerts(now)) for a in self.agents),
+            "cost": self.cost(),
+            "partial": any(a.partial for a in self.agents),
             "detail": detail,
             "agent_count": len(agents) + 1,
             "agents": [a.to_dict(now, detail) for a in [self.main, *agents]]
