@@ -244,21 +244,7 @@ function studioRow(kind, x, t, ro) {
 }
 
 function studioPublishHTML(kind, x, ro) {
-  const projects = new Set(x.targets.filter((t) => t.scope === "project").map((t) => t.project));
-  if (pr.project && sk.data.projects.includes(pr.project)) projects.add(pr.project);
-  const projectRows = [...projects].sort().map((p) => {
-    const rows = ["claude", "antigravity"].map((agent) => {
-      const key = `project:${agent}:${p}`;
-      const t = x.targets.find((y) => y.key === key) || {
-        key, agent, scope: "project", project: p, status: "off",
-        root: agent === "claude" ? p + "/.claude/agents" : p + "/.agents/agents",
-      };
-      return studioRow(kind, x, t, ro);
-    });
-    return `<div class="pub-project"><div class="pub-project-name">${icon("folder")}<span class="mono">${esc(tilde(p))}</span></div>${rows.join("")}</div>`;
-  });
-  const options = sk.data.projects.filter((p) => !projects.has(p))
-    .map((p) => `<option value="${esc(p)}">${esc(tilde(p))}</option>`).join("");
+  const { blocks, options } = projectBlocks(x.targets, pr.project, "agents", (t) => studioRow(kind, x, t, ro), ro, "data-pr-both");
   const extra = kind === "team" ? "Its member profiles are published with it." : x.skills.length ? "Its skills are published with it." : "";
   return `<section class="sk-section">
       <h2>Everywhere</h2>
@@ -268,17 +254,17 @@ function studioPublishHTML(kind, x, ro) {
     <section class="sk-section">
       <h2>Per project</h2>
       <p class="hint">Only sessions working in that folder.</p>
-      ${projectRows.join("") || `<p class="hint">Not published to any project.</p>`}
+      ${blocks || `<p class="hint">Not published to any project.</p>`}
       ${options ? `<div class="pub-add"><select id="pr-project" ${ro ? "disabled" : ""}>
-        <option value="">Choose a project…</option>${options}</select></div>` : ""}
+        <option value="">Add a project…</option>${options}</select></div>` : ""}
     </section>
     <section class="sk-section"><h2>Run it</h2>
       ${x.targets.some((t) => t.status !== "off" && t.status !== "conflict")
         ? `<p class="hint">In a folder where it is published, ${kind === "team" ? "start the lead and give it the job" : "ask for it by name, or start a session as it"}:</p>
-          <pre class="run-hint">claude --agent ${esc(x.name)}\n# or, in a session: "use the ${esc(x.name)} agent to …"</pre>`
+          <pre class="run-hint">claude --agent ${esc(x.name)}     # Claude Code\nagy --agent ${esc(x.name)}        # Antigravity\n# or, in a session: "use the ${esc(x.name)} agent to …"</pre>`
         : `<div class="notice error">Not published yet: Claude Code and Antigravity only find agents in their
           agents folders. Publish it above (everywhere, or to a project), then run
-          <code>claude --agent ${esc(x.name)}</code> there.</div>`}
+          <code>claude --agent ${esc(x.name)}</code> or <code>agy --agent ${esc(x.name)}</code> there.</div>`}
     </section>`;
 }
 
@@ -369,9 +355,20 @@ $("#profiles-view").addEventListener("click", (e) => {
   }
   const pub = t.closest("[data-pr-publish]");
   if (pub) return studioPublish(pub);
+  const both = t.closest("[data-pr-both]");
+  if (both) {
+    const { kind, name } = pr.sel;
+    return studioRun("Published for Claude Code and Antigravity.", () =>
+      publishBoth(find(kind, name).targets, both.dataset.prBoth, (target) =>
+        api("/api/studio/publish", { kind, name, target, on: true, force: false })));
+  }
 });
 $("#profiles-view").addEventListener("change", (e) => {
-  if (e.target.id === "pr-project") { pr.project = e.target.value; renderStudioMain(); }
+  if (e.target.id === "pr-project") {
+    pr.project = e.target.value;
+    renderStudioMain();
+    $("#pub-pending")?.scrollIntoView({ block: "center" });
+  }
 });
 window.addEventListener("beforeunload", (e) => { if (prDirty()) e.preventDefault(); });
 window.addEventListener("focus", () => { if (document.body.dataset.view === "profiles") VIEWS.profiles(); });

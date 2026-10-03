@@ -567,6 +567,9 @@ button.lock { cursor: pointer; }
 .pub-project-name { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-2); }
 .pub-project-name svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; }
 .pub-add { margin-top: 12px; max-width: 420px; }
+.pub-project-name .btn { margin-left: auto; }
+.pub-project.pending { padding: 10px 12px 12px; border-radius: 12px; border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.pub-project.pending .hint { margin: 6px 0 0; }
 .log-row { display: grid; grid-template-columns: 90px 1fr auto; gap: 12px; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .log-row .muted { color: var(--muted); font-size: 12px; }
 
