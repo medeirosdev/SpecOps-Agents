@@ -273,8 +273,12 @@ function studioPublishHTML(kind, x, ro) {
         <option value="">Choose a project…</option>${options}</select></div>` : ""}
     </section>
     <section class="sk-section"><h2>Run it</h2>
-      <p class="hint">${kind === "team" ? "Start the lead and give it the job:" : "Ask for it by name, or start a session as it:"}</p>
-      <pre class="run-hint">claude --agent ${esc(x.name)}\n# or, in a session: "use the ${esc(x.name)} agent to …"</pre>
+      ${x.targets.some((t) => t.status !== "off" && t.status !== "conflict")
+        ? `<p class="hint">In a folder where it is published, ${kind === "team" ? "start the lead and give it the job" : "ask for it by name, or start a session as it"}:</p>
+          <pre class="run-hint">claude --agent ${esc(x.name)}\n# or, in a session: "use the ${esc(x.name)} agent to …"</pre>`
+        : `<div class="notice error">Not published yet: Claude Code and Antigravity only find agents in their
+          agents folders. Publish it above (everywhere, or to a project), then run
+          <code>claude --agent ${esc(x.name)}</code> there.</div>`}
     </section>`;
 }
 
