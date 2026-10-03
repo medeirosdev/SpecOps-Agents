@@ -28,8 +28,11 @@ from importlib import resources
 from typing import Any
 from urllib.parse import parse_qs, urlparse, urlsplit
 
+from .. import metrics
 from ..hive import Hive
+from ..profiles import KINDS, Studio
 from ..skills import Library, SkillError
+from ..starters import add_starters, starter_names
 from .auth import Auth, AuthError
 
 STATIC = resources.files("specops.web") / "static"
@@ -51,6 +54,7 @@ class Skills:
 
     def __init__(self, library: Library, auth: Auth | None, reason: str = "") -> None:
         self.library = library
+        self.studio = Studio(library)
         self.auth = auth
         self.reason = reason  # why editing is disabled, shown in the UI
 
@@ -91,6 +95,10 @@ def make_handler(
                 self._json(hive.snapshot(session))
             elif url.path == "/api/skills":
                 self._skills_state()
+            elif url.path == "/api/studio":
+                self._studio_state()
+            elif url.path == "/api/metrics":
+                self._metrics((query.get("by") or ["profile"])[0])
             elif url.path == "/api/stream":
                 self._stream(session)
             elif url.path in ("/", "/index.html"):
@@ -122,6 +130,27 @@ def make_handler(
                     "home": str(lib.home),
                 }
             )
+
+        def _studio_state(self) -> None:
+            if skills is None:
+                self._json({"enabled": False})
+                return
+            try:
+                listing = skills.studio.list()
+            except OSError as err:
+                self._error(HTTPStatus.INTERNAL_SERVER_ERROR, f"filesystem error: {err.strerror}")
+                return
+            self._json({"enabled": True, **listing, "starters": starter_names()})
+
+        def _metrics(self, by: str) -> None:
+            if by not in metrics.GROUPS:
+                self._error(HTTPStatus.BAD_REQUEST, "unknown grouping")
+                return
+            names = skills.studio.agent_names() if skills else {}
+            report = hive.metrics(by, names)
+            report.pop("agents")
+            report["since"] = hive.since
+            self._json(report)
 
         def do_POST(self) -> None:
             self._body_read = False
@@ -167,6 +196,32 @@ def make_handler(
                 return lib.set_published(name, str(body.get("target", "")), on, force, actor)
             if route == "/api/skills/import":
                 return lib.import_skill(str(body.get("target", "")), name, actor)
+            if route.startswith("/api/studio/"):
+                return self._studio_action(route.removeprefix("/api/studio/"), body, actor)
+            raise HTTPError(HTTPStatus.NOT_FOUND, "no such action")
+
+        def _studio_action(self, action: str, body: dict[str, Any], actor: str) -> Any:
+            assert skills is not None
+            studio = skills.studio
+            kind = str(body.get("kind", ""))
+            name = str(body.get("name", ""))
+            force = body.get("force") is True
+            if action == "starters":
+                return {"created": add_starters(studio, actor)}
+            if kind not in KINDS:
+                raise HTTPError(HTTPStatus.BAD_REQUEST, "unknown kind")
+            if action in ("create", "update"):
+                item = body.get("item")
+                if not isinstance(item, dict):
+                    raise HTTPError(HTTPStatus.BAD_REQUEST, "expected an item")
+                return studio.save(kind, item, action == "create", actor)
+            if action == "delete":
+                studio.delete(kind, name, force, actor)
+                return {"ok": True}
+            if action == "publish":
+                on = body.get("on") is True
+                target = str(body.get("target", ""))
+                return studio.set_published(kind, name, target, on, force, actor)
             raise HTTPError(HTTPStatus.NOT_FOUND, "no such action")
 
         def _guard_write(self) -> None:

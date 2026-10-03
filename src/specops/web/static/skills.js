@@ -74,22 +74,30 @@ async function loadSkills() {
     sk.loading = false;
   }
   renderSkills();
+  for (const after of SK_AFTER) after();
 }
+// Other views that show the lock or the skill list re-render through these.
+const SK_AFTER = [];
 
 /* ----------------------------------------------------------------- views */
+// Loaders of the views other than "agents", registered by each view's script.
+const VIEWS = { skills: () => loadSkills() };
+
 function setView(view) {
   document.body.dataset.view = view;
-  $("#agents-view").hidden = view !== "agents";
-  $("#skills-view").hidden = view !== "skills";
+  for (const el of document.querySelectorAll("[data-view-of]")) el.hidden = el.dataset.viewOf !== view;
   $("#stats").hidden = view !== "agents";
   $(".follow").hidden = view !== "agents";
   for (const a of document.querySelectorAll(".views a")) {
     if (a.dataset.view === view) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }
-  if (view === "skills") loadSkills();
+  if (VIEWS[view]) VIEWS[view]();
 }
-const viewFromHash = () => (location.hash === "#skills" ? "skills" : "agents");
+const viewFromHash = () => {
+  const v = location.hash.slice(1);
+  return VIEWS[v] ? v : "agents";
+};
 window.addEventListener("hashchange", () => setView(viewFromHash()));
 
 /* ----------------------------------------------------------------- render */
@@ -231,24 +239,44 @@ function targetRow(s, t, ro) {
     ${act}</div>`;
 }
 
-function publishHTML(s, ro) {
-  const d = sk.data;
-  const global = s.targets.filter((t) => t.scope === "global");
-  const projects = new Set(s.targets.filter((t) => t.scope === "project").map((t) => t.project));
-  if (sk.project && d.projects.includes(sk.project)) projects.add(sk.project);
-  const projectRows = [...projects].sort().map((p) => {
-    const rows = ["claude", "antigravity"].map((agent) => {
+/** The per-project publish blocks: projects it is published to, then the one just picked in
+    the dropdown (highlighted, right above it, so picking visibly does something). */
+function projectBlocks(targets, chosen, folder, row, ro, bothAttr) {
+  const published = [...new Set(targets.filter((t) => t.scope === "project").map((t) => t.project))].sort();
+  const pending = chosen && sk.data.projects.includes(chosen) && !published.includes(chosen) ? chosen : "";
+  const blocks = [...published, ...(pending ? [pending] : [])].map((p) => {
+    const ts = ["claude", "antigravity"].map((agent) => {
       const key = `project:${agent}:${p}`;
-      const t = s.targets.find((x) => x.key === key) || {
+      return targets.find((x) => x.key === key) || {
         key, agent, scope: "project", project: p, status: "off",
-        root: agent === "claude" ? p + "/.claude/skills" : p + "/.agents/skills",
+        root: p + (agent === "claude" ? "/.claude/" : "/.agents/") + folder,
       };
-      return targetRow(s, t, ro);
     });
-    return `<div class="pub-project"><div class="pub-project-name">${icon("folder")}<span class="mono">${esc(tilde(p))}</span></div>${rows.join("")}</div>`;
+    const both = ts.every((t) => t.status === "off")
+      ? `<button type="button" class="btn small primary" ${ro ? "disabled" : ""} ${bothAttr}="${esc(p)}">Publish to both</button>` : "";
+    return `<div class="pub-project${p === pending ? " pending" : ""}"${p === pending ? ' id="pub-pending"' : ""}>
+      <div class="pub-project-name">${icon("folder")}<span class="mono">${esc(tilde(p))}</span>${both}</div>
+      ${p === pending ? `<p class="hint">Not published here yet: publish it for Claude Code, Antigravity, or both.</p>` : ""}
+      ${ts.map(row).join("")}</div>`;
   });
-  const options = d.projects.filter((p) => !projects.has(p))
+  const shown = new Set([...published, pending]);
+  const options = sk.data.projects.filter((p) => !shown.has(p))
     .map((p) => `<option value="${esc(p)}">${esc(tilde(p))}</option>`).join("");
+  return { blocks: blocks.join(""), options };
+}
+
+/** Publish to every agent of a project block that is still off. */
+async function publishBoth(targets, project, publishOne) {
+  for (const agent of ["claude", "antigravity"]) {
+    const key = `project:${agent}:${project}`;
+    const t = targets.find((x) => x.key === key);
+    if (!t || t.status === "off") await publishOne(key);
+  }
+}
+
+function publishHTML(s, ro) {
+  const global = s.targets.filter((t) => t.scope === "global");
+  const { blocks, options } = projectBlocks(s.targets, sk.project, "skills", (t) => targetRow(s, t, ro), ro, "data-sk-both");
   return `<section class="sk-section">
       <h2>Everywhere</h2>
       <p class="hint">Every session of that agent, in any folder.</p>
@@ -258,9 +286,9 @@ function publishHTML(s, ro) {
       <h2>Per project</h2>
       <p class="hint">Only sessions working in that folder. Projects are the folders where SpecOps
         has seen an agent session.</p>
-      ${projectRows.join("") || `<p class="hint">Not published to any project.</p>`}
+      ${blocks || `<p class="hint">Not published to any project.</p>`}
       ${options ? `<div class="pub-add"><select id="sk-project" ${ro ? "disabled" : ""}>
-        <option value="">Choose a project…</option>${options}</select></div>` : ""}
+        <option value="">Add a project…</option>${options}</select></div>` : ""}
     </section>`;
 }
 
@@ -269,7 +297,7 @@ const ACTIONS = {
   unpublish: "unpublished", import: "imported",
 };
 function auditHTML(name) {
-  const rows = (sk.data.audit || []).filter((a) => !name || a.skill === name).slice(0, 12);
+  const rows = (sk.data.audit || []).filter((a) => !a.kind && (!name || a.skill === name)).slice(0, 12);
   if (!rows.length) return "";
   return `<section class="sk-section sk-log"><h2>Activity</h2>${rows.map((a) => `
     <div class="log-row"><span class="mono">${clock(a.ts)}</span>
@@ -401,6 +429,13 @@ $("#skills-view").addEventListener("click", (e) => {
   }
   const pub = t.closest("[data-publish]");
   if (pub) return publish(pub);
+  const both = t.closest("[data-sk-both]");
+  if (both) {
+    const s = skill(sk.selected);
+    return run("Published for Claude Code and Antigravity.", () =>
+      publishBoth(s.targets, both.dataset.skBoth, (target) =>
+        api("/api/skills/publish", { name: sk.selected, target, on: true, force: false })));
+  }
   const imp = t.closest("[data-import]");
   if (imp) {
     return run("Imported into the library.", () =>
@@ -408,7 +443,11 @@ $("#skills-view").addEventListener("click", (e) => {
   }
 });
 $("#skills-view").addEventListener("change", (e) => {
-  if (e.target.id === "sk-project") { sk.project = e.target.value; renderSkillMain(); }
+  if (e.target.id === "sk-project") {
+    sk.project = e.target.value;
+    renderSkillMain();
+    $("#pub-pending")?.scrollIntoView({ block: "center" });
+  }
 });
 $("#sk-unlock").addEventListener("click", (e) => {
   if (e.target.closest("[data-unlock-close]")) closeUnlock();
@@ -428,4 +467,3 @@ setInterval(() => {
   else if (sk.selected !== null || sk.token) setHTML($(".sk-lock"), lockChip());
 }, 30000);
 
-setView(viewFromHash());
