@@ -410,3 +410,64 @@ def test_antigravity_calls_are_never_slow() -> None:
     a = Agent(id="g", session_id="g", kind="main", source="antigravity")
     a.ingest(assistant(tool_use("t1", "Bash", command="npm run dev"), stop="tool_use"))
     assert a.alerts(T0 + SLOW_TOOL + 1) == []
+
+
+# --------------------------------------------------------------------------- conversations
+def squad() -> Session:
+    """A main agent that delegates to a lead, which messages a worker it started."""
+    main = main_agent()
+    lead = Agent(id="lead", session_id="s", kind="sub", agent_type="lead", parent_tool_id="t1")
+    worker = Agent(id="w", session_id="s", kind="sub", agent_type="worker", parent_tool_id="t2")
+    session = Session(id="s", project_dir="p", main=main, subagents={"lead": lead, "w": worker})
+    main.ingest(assistant(tool_use("t1", "Agent", prompt="Review it"), at=1, stop="tool_use"))
+    lead.ingest(user("Review it", at=1))
+    lead.ingest(assistant(tool_use("t2", "Agent", prompt="Check A"), at=2, stop="tool_use"))
+    worker.ingest(user("Check A", at=2))
+    lead.ingest(user(tool_result("t2", "Async agent launched successfully."), at=2))
+    lead.ingest(assistant(tool_use("t3", "SendMessage", to="w", message="Status?"), at=3))
+    lead.ingest(user(tool_result("t3"), at=3))
+    note = 'A message:\n<agent-message from="lead">\nStatus?\n</agent-message>'
+    worker.ingest(user(note, at=3, isMeta=True))
+    worker.ingest(assistant({"type": "text", "text": "A is fine"}, at=4, stop="end_turn"))
+    reply = {
+        "type": "attachment",
+        "timestamp": ts(5),
+        "attachment": {
+            "type": "queued_command",
+            "prompt": '<agent-message from="w">\nA is fine\n</agent-message>',
+        },
+    }
+    lead.ingest(reply)
+    lead.ingest(assistant({"type": "text", "text": "All good"}, at=6, stop="end_turn"))
+    main.ingest(user(tool_result("t1", "All good"), at=6))
+    session.link_subagents()
+    return session
+
+
+def test_received_messages_are_not_prompts() -> None:
+    session = squad()
+    worker = session.subagents["w"]
+    assert worker.task == "Check A" and worker.last_prompt == "Check A"
+    got = [a for a in worker.activities if a.kind == "message"]
+    assert [(a.peer, a.text) for a in got] == [("lead", "Status?")]
+    sent = next(a for a in session.subagents["lead"].activities if a.tool == "SendMessage")
+    assert (sent.peer, sent.text) == ("w", "Status?")
+    assert sent.to_dict()["peer"] == "w"
+
+
+def test_conversation_lists_delegations_and_messages_once() -> None:
+    convo = [(m["kind"], m["from"], m["to"], m["text"]) for m in squad().conversation()]
+    assert convo == [
+        ("task", "s", "lead", "Review it"),
+        ("task", "lead", "w", "Check A"),
+        ("message", "lead", "w", "Status?"),  # sent and received: listed once
+        ("result", "w", "lead", "A is fine"),  # a background agent's answer is its last reply
+        ("message", "w", "lead", "A is fine"),  # only the receiving side was logged
+        ("result", "lead", "s", "All good"),
+    ]
+
+
+def test_conversation_is_only_in_detailed_snapshots() -> None:
+    session = squad()
+    assert session.to_dict(T0 + 10, detail=True)["conversation"]
+    assert session.to_dict(T0 + 10)["conversation"] == []

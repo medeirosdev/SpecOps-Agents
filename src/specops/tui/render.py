@@ -69,6 +69,7 @@ KIND_GLYPH = {
     "error": "✗",
     "interrupt": "■",
     "command": "/",
+    "message": "✉",
 }
 KIND_COLOR = {
     "thinking": "#b69cff",
@@ -77,6 +78,7 @@ KIND_COLOR = {
     "error": "#ff6b6b",
     "interrupt": "#ff9d5c",
     "command": "#c3d65a",
+    "message": "#ff7a8a",
 }
 WORKING = {"thinking", "tool", "writing"}
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -509,6 +511,7 @@ def timeline(a: dict[str, Any], tab: str = "timeline") -> RenderableType:
                 "error": "Error",
                 "interrupt": "Interrupted",
                 "command": "Command",
+                "message": f"Message from {x.get('peer') or 'an agent'}",
             }.get(kind, kind)
             body = Text()
             body.append(label, style=f"bold {KIND_COLOR.get(kind, '')}")

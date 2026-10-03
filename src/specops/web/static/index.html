@@ -17,6 +17,8 @@
       <nav class="views" aria-label="Views">
         <a href="#" data-view="agents" aria-current="page">Agents</a>
         <a href="#skills" data-view="skills">Skills</a>
+        <a href="#profiles" data-view="profiles">Profiles</a>
+        <a href="#metrics" data-view="metrics">Metrics</a>
       </nav>
     </div>
     <div class="stats" id="stats"></div>
@@ -30,7 +32,7 @@
     </div>
   </header>
 
-  <div class="layout" id="agents-view">
+  <div class="layout" id="agents-view" data-view-of="agents">
     <aside class="sidebar">
       <div class="search">
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -42,7 +44,7 @@
     <main id="main" class="main"></main>
   </div>
 
-  <div class="layout" id="skills-view" hidden>
+  <div class="layout" id="skills-view" data-view-of="skills" hidden>
     <aside class="sidebar">
       <div class="sk-side-head">
         <button class="btn primary" id="sk-new" type="button">New skill</button>
@@ -52,10 +54,26 @@
     <main id="sk-main" class="main"></main>
   </div>
 
+  <div class="layout" id="profiles-view" data-view-of="profiles" hidden>
+    <aside class="sidebar">
+      <div class="sk-side-head pr-new">
+        <button class="btn primary small" type="button" data-new="profile">New profile</button>
+        <button class="btn small" type="button" data-new="team">New team</button>
+        <button class="btn small" type="button" data-new="rule">New rule</button>
+      </div>
+      <nav id="pr-list" class="sessions" aria-label="Profiles, teams and rules"></nav>
+    </aside>
+    <main id="pr-main" class="main"></main>
+  </div>
+
+  <div class="layout single" id="metrics-view" data-view-of="metrics" hidden>
+    <main id="mx-main" class="main"></main>
+  </div>
+
   <div id="sk-unlock" class="modal" hidden>
     <div class="modal-scrim" data-unlock-close></div>
     <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="sk-unlock-title">
-      <h2 id="sk-unlock-title">Unlock skill editing</h2>
+      <h2 id="sk-unlock-title">Unlock editing</h2>
       <p>Type the unlock code printed in the terminal running <code>specops web</code>.
         Each code works once; a new one is printed after you unlock.</p>
       <input id="sk-code" class="code-input" autocomplete="off" autocapitalize="characters"
@@ -88,5 +106,7 @@
   </svg>
   <script src="/static/app.js"></script>
   <script src="/static/skills.js"></script>
+  <script src="/static/profiles.js"></script>
+  <script src="/static/metrics.js"></script>
 </body>
 </html>

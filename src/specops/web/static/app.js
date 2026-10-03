@@ -9,6 +9,7 @@ const state = {
   follow: true,
   agent: null, // agent id shown in the drawer
   tab: "timeline",
+  sview: "squad", // session view: "squad" (agent cards) or "talk" (what they said to each other)
   filter: "",
   showAllFinished: false,
   stream: null,
@@ -45,6 +46,7 @@ const ICONS = {
   error: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/>',
   interrupt: '<rect x="5" y="5" width="14" height="14" rx="2"/>',
   command: '<path d="M16 3 8 21"/>',
+  message: '<path d="M4 5h16v11H8l-4 4z"/><path d="M8 9h8M8 12h5"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
   branch: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="7" r="2"/><path d="M6 7v10M18 9a8 8 0 0 1-8 8H8"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
@@ -58,7 +60,7 @@ const icon = (name) => `<svg viewBox="0 0 24 24">${ICONS[name] || ICONS.other}</
 const mark = () => '<svg viewBox="0 0 32 32"><use href="#mark"/></svg>';
 
 const CAT_VAR = (cat) => `var(--c-${cat || "other"})`;
-const KIND_CAT = { thinking: "search", text: "read", prompt: "edit", error: "other", interrupt: "other", command: "plan" };
+const KIND_CAT = { thinking: "search", text: "read", prompt: "edit", error: "other", interrupt: "other", command: "plan", message: "agent" };
 const catOf = (a) => (a.kind === "tool" ? a.category || "other" : KIND_CAT[a.kind] || "other");
 
 const STATUS = {
@@ -277,10 +279,11 @@ function renderMain() {
   if (main.dataset.view !== "session:" + d.id) {
     main.dataset.view = "session:" + d.id;
     main._html = null;
-    main.innerHTML = `<div id="shead"></div>
-      <div class="colony queen" id="queen"></div>
+    main.innerHTML = `<div id="shead"></div><div id="sviews"></div>
+      <div id="squad"><div class="colony queen" id="queen"></div>
       <div id="wtitle"></div><div class="colony" id="workers"></div>
-      <div id="ftitle"></div><div class="finished" id="finished"></div><div id="fmore"></div>`;
+      <div id="ftitle"></div><div class="finished" id="finished"></div><div id="fmore"></div></div>
+      <div id="talk" class="talk" hidden></div>`;
     main.scrollTop = 0;
   }
 
@@ -309,6 +312,17 @@ function renderMain() {
     </div>`
   );
 
+  const talk = d.conversation || [];
+  setHTML(
+    $("#sviews"),
+    `<div class="tabs sviews">${[["squad", "Squad", d.agents.length], ["talk", "Conversations", talk.length]]
+      .map(([k, label, n]) => `<button class="tab ${state.sview === k ? "on" : ""}" data-sview="${k}">${label} <span class="count">${n}</span></button>`)
+      .join("")}</div>`
+  );
+  $("#squad").hidden = state.sview !== "squad";
+  $("#talk").hidden = state.sview !== "talk";
+  if (state.sview === "talk") return renderTalk(d, talk);
+
   patch($("#queen"), [queen], (a) => a.id, (a) => card(a, true), (a) => cardClass(a) + " queen");
 
   const working = subs.filter((a) => !["done", "idle", "error", "interrupted"].includes(a.status));
@@ -325,6 +339,41 @@ function renderMain() {
     finished.length > shown.length
       ? `<button class="more-btn" data-more>Show ${finished.length - shown.length} more</button>`
       : ""
+  );
+}
+
+/* ----------------------------------------------------------------- conversations */
+const TALK_VERB = { task: "gave a task to", result: "reported back to", message: "messaged" };
+
+function talkWho(a, raw) {
+  if (!a) return `<span class="mono">${esc(raw === "@children" ? "all its subagents" : raw)}</span>`;
+  const label = a.kind === "main" ? a.name : a.description ? `${a.name} · ${a.description}` : a.name;
+  return `<span class="link who-link" data-agent="${esc(a.id)}" style="--hue:${hueFor(a)}" title="${esc(label)}">${esc(label)}</span>`;
+}
+
+function renderTalk(d, talk) {
+  const box = $("#talk");
+  if (!talk.length) {
+    setHTML(box, `<p class="talk-empty">No conversation yet. Tasks handed to subagents, their answers,
+      and messages agents send each other show up here.</p>`);
+    return;
+  }
+  const byId = Object.fromEntries(d.agents.map((a) => [a.id, a]));
+  if (box._html) { box.innerHTML = ""; box._html = null; } // drop the empty-state text
+  patch(
+    box,
+    talk,
+    (m) => `${m.ts}:${m.kind}:${m.from}:${m.to}:${m.text.length}`,
+    (m) => {
+      const from = byId[m.from];
+      return `${from ? avatar(from) : `<span class="avatar">${mark()}</span>`}
+        <div class="msg-body"><div class="msg-head">${talkWho(from, m.from)}
+          <span class="muted">${TALK_VERB[m.kind] || m.kind}</span> ${talkWho(byId[m.to], m.to)}
+          <span class="t">${clock(m.ts)}</span></div>
+        <div class="prose${m.text.length > 600 ? " clamp" : ""}">${md(m.text)}</div>
+        ${m.text.length > 600 ? `<button class="more-btn" data-expand>Show all</button>` : ""}</div>`;
+    },
+    (m) => `msg ${m.kind}`
   );
 }
 
@@ -545,10 +594,13 @@ function timelineItem(x, agent) {
   if (x.kind === "tool") {
     const d = x.ended ? dur(x.ended - x.ts) : "";
     const status = x.status === "running" ? live(x.ts) : x.status === "error" ? `<span class="status-error">failed ${d}</span>` : d;
-    const spawn = x.agent_ref ? ` <span class="link" data-agent="${esc(x.agent_ref)}">open agent →</span>` : "";
+    const peer = x.peer ? sessionDetail()?.agents.find((a) => a.id === x.peer) : null;
+    const spawn = x.agent_ref ? ` <span class="link" data-agent="${esc(x.agent_ref)}">open agent →</span>`
+      : peer ? ` <span class="link" data-agent="${esc(peer.id)}">${esc(peer.description || peer.name)} →</span>` : "";
     body = `<div class="line"><span class="verb">${esc(x.verb)}</span><span class="target" title="${esc(x.target)}">${esc(x.target)}</span>${spawn}<span class="dur">${status}</span></div>`;
     if (x.detail && x.detail !== x.target)
       body += `<details><summary>${x.tool === "Bash" ? "command" : x.category === "read" || x.category === "edit" ? "full path" : "input"}</summary><pre>${esc(x.detail)}</pre></details>`;
+    if (x.peer && x.text) body += `<div class="prose clamp">${md(x.text)}</div>`;
     if (x.result) body += `<details><summary>output</summary><pre>${esc(x.result)}</pre></details>`;
   } else if (x.kind === "thinking") {
     body = x.text
@@ -560,6 +612,10 @@ function timelineItem(x, agent) {
     body = `<div class="line"><span class="verb">${agent.kind === "main" ? "You" : "Task"}</span></div><div class="prose clamp">${esc(x.text)}</div>`;
   } else if (x.kind === "command") {
     body = `<div class="line"><span class="verb">Command</span><span class="target">${esc(x.text)}</span></div>`;
+  } else if (x.kind === "message") {
+    const from = sessionDetail()?.agents.find((a) => a.id === x.peer);
+    const who = from ? `<span class="link" data-agent="${esc(from.id)}">${esc(from.description || from.name)}</span>` : esc(x.peer);
+    body = `<div class="line"><span class="verb">Message from</span><span class="target">${who}</span></div><div class="prose clamp">${md(x.text)}</div>`;
   } else {
     body = `<div class="line"><span class="verb">${x.kind === "error" ? "Error" : "Interrupted"}</span></div><div class="prose">${esc(x.text)}</div>`;
   }
@@ -604,6 +660,13 @@ document.addEventListener("click", (e) => {
   if (link) return openAgent(link.dataset.agent);
   if (t.closest("[data-close]")) return closeDrawer();
   if (t.closest("[data-more]")) { state.showAllFinished = true; return render(); }
+  const sview = t.closest("[data-sview]");
+  if (sview) { state.sview = sview.dataset.sview; return render(); }
+  const expand = t.closest("[data-expand]");
+  if (expand) {
+    expand.previousElementSibling?.classList.remove("clamp");
+    return expand.remove();
+  }
   const tab = t.closest("[data-tab]");
   if (tab) {
     state.tab = tab.dataset.tab;

@@ -230,6 +230,18 @@ class Hive:
                 found += source.sessions()
             return sorted({a.cwd for s in found for a in s.agents if a.cwd})
 
+    def metrics(
+        self, by: str = "profile", profiles: dict[str, str] | None = None
+    ) -> dict[str, Any]:
+        """Usage compared across every session in view (see :mod:`specops.metrics`)."""
+        from . import metrics
+
+        with self._lock:
+            found = list(self.sessions.values())
+            for source in self.sources:
+                found += source.sessions()
+            return metrics.collect(found, by=by, profiles=profiles)
+
     # ---------------------------------------------------------------- snapshot
     def snapshot(self, detail: str | None = None) -> dict[str, Any]:
         """Everything the UIs need. Only the ``detail`` session carries full timelines."""

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from collections import Counter, deque
 from dataclasses import dataclass, field
@@ -60,6 +61,14 @@ SLOW_TOOL = 600.0  # a call with no result after this many seconds
 POLLING_TOOLS = {"BashOutput", "Monitor", "TaskOutput", "TodoWrite", "ScheduleWakeup"}
 PATIENT_CATEGORIES = {"agent", "ask"}
 
+# Agents talking to each other: a tool call on the sender's side, and on the receiver's side a
+# message Claude Code wraps in <agent-message> (Antigravity's receiving side isn't logged).
+MESSAGE_TOOLS = {"SendMessage", "send_message"}
+AGENT_MESSAGE = re.compile(r'<agent-message from="([^"]*)">\n?(.*?)\n?</agent-message>', re.S)
+MAX_MESSAGES = 300
+# What the Agent tool returns at once for a subagent run in the background.
+ASYNC_LAUNCH = "Async agent launched"
+
 
 def parse_ts(value: Any) -> float | None:
     if not isinstance(value, str) or not value:
@@ -99,6 +108,17 @@ def _is_noise(text: str) -> bool:
     )
 
 
+def message_of(name: str, args: Any) -> tuple[str, str] | None:
+    """``(recipient, text)`` when a tool call sends a message to another agent."""
+    if name not in MESSAGE_TOOLS or not isinstance(args, dict):
+        return None
+    to = next((args[k] for k in ("to", "recipient", "Recipient") if args.get(k)), "")
+    text = next((args[k] for k in ("message", "content", "Message") if args.get(k)), "")
+    if not isinstance(text, str):
+        text = json.dumps(text, ensure_ascii=False)
+    return str(to), text
+
+
 def call_sig(name: str, args: Any) -> str:
     """Identifies a tool call by name and input, so identical calls can be spotted."""
     return f"{name}:{hash(json.dumps(args, sort_keys=True, default=str))}"
@@ -110,7 +130,7 @@ def _alert(kind: str, text: str, act: Activity) -> dict[str, Any]:
 
 @dataclass
 class Activity:
-    kind: str  # prompt | thinking | text | tool | error | command | interrupt
+    kind: str  # prompt | thinking | text | tool | error | command | interrupt | message
     ts: float
     text: str = ""
     tool: str = ""
@@ -123,6 +143,7 @@ class Activity:
     tool_id: str = ""
     ended: float | None = None
     agent_ref: str = ""  # tool spawned this subagent
+    peer: str = ""  # message: the agent it was received from; tool: the agent it was sent to
     sig: str = ""  # tool name + input, to spot identical calls
 
     def to_dict(self, compact: bool = False) -> dict[str, Any]:
@@ -144,6 +165,8 @@ class Activity:
                 ended=self.ended,
                 agent_ref=self.agent_ref,
             )
+        if self.peer:
+            d["peer"] = self.peer
         return d
 
 
@@ -218,6 +241,10 @@ class Agent:
             self.title = obj.get("customTitle") or self.title
         elif etype == "summary" and not self.title:
             self.title = obj.get("summary") or ""
+        elif etype == "attachment":
+            att = obj.get("attachment") or {}
+            if att.get("type") == "queued_command" and isinstance(att.get("prompt"), str):
+                self._receive(att["prompt"], ts)
         elif etype == "system" and obj.get("subtype") == "turn_duration" and not self.pending:
             self.phase = "waiting" if self.kind == "main" else "done"
 
@@ -293,6 +320,9 @@ class Agent:
             tool_id=block.get("id") or "",
             sig=call_sig(name, args),
         )
+        message = message_of(name, args)
+        if message:
+            act.peer, act.text = message
         self._add(act)
         self.tool_count += 1
         if act.tool_id:
@@ -330,6 +360,8 @@ class Agent:
                 if isinstance(block, dict) and block.get("type") == "tool_result":
                     self._finish_tool(block, obj, ts)
         if is_meta:
+            if isinstance(content, str):
+                self._receive(content, ts)
             return
 
         text = (
@@ -339,7 +371,7 @@ class Agent:
                 [b for b in content if isinstance(b, dict) and b.get("type") in ("text", "image")]
             )
         )
-        if not text.strip():
+        if not text.strip() or self._receive(text, ts):
             return
         if text.startswith(INTERRUPT_MARKERS):
             self._add(Activity("interrupt", ts, text="Interrupted by user"))
@@ -359,6 +391,13 @@ class Agent:
         self.last_prompt = text
         self._add(Activity("prompt", ts, text=text))
         self.phase = "thinking"
+
+    def _receive(self, text: str, ts: float) -> bool:
+        """Record the messages other agents sent this one, if ``text`` carries any."""
+        found = AGENT_MESSAGE.findall(text) if "<agent-message" in text else []
+        for sender, body in found:
+            self._add(Activity("message", ts, text=body.strip(), peer=sender))
+        return bool(found)
 
     def _finish_tool(self, block: dict[str, Any], obj: dict[str, Any], ts: float) -> None:
         tool_id = block.get("tool_use_id") or ""
@@ -387,6 +426,12 @@ class Agent:
         if self.phase == "waiting" and age > 6 * 3600:
             return "idle"
         return self.phase
+
+    def final_text(self) -> Activity | None:
+        """The last thing a finished agent said: its answer."""
+        if self.phase not in ("done", "waiting"):
+            return None
+        return next((a for a in reversed(self.activities) if a.kind == "text"), None)
 
     def current(self) -> Activity | None:
         if self.pending:
@@ -600,6 +645,53 @@ class Session:
                     if act.tool_id == sub.parent_tool_id:
                         act.agent_ref = sub.id
 
+    def conversation(self) -> list[dict[str, Any]]:
+        """What the agents of this session said to each other, oldest first.
+
+        ``task`` is the work an agent handed a subagent and ``result`` what came back; ``message``
+        is a direct message. One logged on both sides (sent and received) is listed once.
+        ``from``/``to`` are agent ids, or the raw name when the peer isn't in this session.
+        """
+        agents = {a.id: a for a in self.agents}
+        out: list[dict[str, Any]] = []
+        sent: Counter[tuple[str, str, str]] = Counter()
+        received: list[tuple[Agent, Activity]] = []
+        tasked: set[str] = set()
+
+        def add(kind: str, ts: float | None, sender: str, to: str, text: str) -> None:
+            out.append({"ts": ts or 0, "kind": kind, "from": sender, "to": to, "text": text[:4000]})
+
+        for agent in agents.values():
+            for act in agent.activities:
+                if act.kind == "message":
+                    received.append((agent, act))
+                elif act.kind == "tool" and act.agent_ref in agents and act.agent_ref != agent.id:
+                    child = agents[act.agent_ref]
+                    tasked.add(child.id)
+                    add("task", act.ts, agent.id, child.id, child.task or act.detail)
+                    if act.result.startswith(ASYNC_LAUNCH):  # the answer comes later
+                        final = child.final_text()
+                        if final:
+                            add("result", final.ts, child.id, agent.id, final.text)
+                    elif act.status != "running" and act.result:
+                        add("result", act.ended or act.ts, child.id, agent.id, act.result)
+                elif act.kind == "tool" and act.peer:
+                    add("message", act.ts, agent.id, act.peer, act.text)
+                    sent[(agent.id, act.peer, act.text.strip())] += 1
+        for agent, act in received:
+            key = (act.peer, agent.id, act.text.strip())
+            if sent[key]:
+                sent[key] -= 1
+                continue
+            add("message", act.ts, act.peer, agent.id, act.text)
+        # Subagents linked by parent only (Antigravity): their first prompt is the task.
+        for sub in self.subagents.values():
+            parent = sub.parent_id or self.main.id
+            if sub.id not in tasked and sub.task and parent in agents:
+                add("task", sub.started, parent, sub.id, sub.task)
+        out.sort(key=lambda m: m["ts"])
+        return out[-MAX_MESSAGES:]
+
     def project_name(self) -> str:
         cwd = self.main.cwd
         if cwd:
@@ -643,6 +735,7 @@ class Session:
             "partial": any(a.partial for a in self.agents),
             "detail": detail,
             "agent_count": len(agents) + 1,
+            "conversation": self.conversation() if detail else [],
             "agents": [a.to_dict(now, detail) for a in [self.main, *agents]]
             if detail
             else [a.brief(now) for a in [self.main, *agents]],

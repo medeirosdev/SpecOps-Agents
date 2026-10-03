@@ -74,22 +74,30 @@ async function loadSkills() {
     sk.loading = false;
   }
   renderSkills();
+  for (const after of SK_AFTER) after();
 }
+// Other views that show the lock or the skill list re-render through these.
+const SK_AFTER = [];
 
 /* ----------------------------------------------------------------- views */
+// Loaders of the views other than "agents", registered by each view's script.
+const VIEWS = { skills: () => loadSkills() };
+
 function setView(view) {
   document.body.dataset.view = view;
-  $("#agents-view").hidden = view !== "agents";
-  $("#skills-view").hidden = view !== "skills";
+  for (const el of document.querySelectorAll("[data-view-of]")) el.hidden = el.dataset.viewOf !== view;
   $("#stats").hidden = view !== "agents";
   $(".follow").hidden = view !== "agents";
   for (const a of document.querySelectorAll(".views a")) {
     if (a.dataset.view === view) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
   }
-  if (view === "skills") loadSkills();
+  if (VIEWS[view]) VIEWS[view]();
 }
-const viewFromHash = () => (location.hash === "#skills" ? "skills" : "agents");
+const viewFromHash = () => {
+  const v = location.hash.slice(1);
+  return VIEWS[v] ? v : "agents";
+};
 window.addEventListener("hashchange", () => setView(viewFromHash()));
 
 /* ----------------------------------------------------------------- render */
@@ -269,7 +277,7 @@ const ACTIONS = {
   unpublish: "unpublished", import: "imported",
 };
 function auditHTML(name) {
-  const rows = (sk.data.audit || []).filter((a) => !name || a.skill === name).slice(0, 12);
+  const rows = (sk.data.audit || []).filter((a) => !a.kind && (!name || a.skill === name)).slice(0, 12);
   if (!rows.length) return "";
   return `<section class="sk-section sk-log"><h2>Activity</h2>${rows.map((a) => `
     <div class="log-row"><span class="mono">${clock(a.ts)}</span>
@@ -428,4 +436,3 @@ setInterval(() => {
   else if (sk.selected !== null || sk.token) setHTML($(".sk-lock"), lockChip());
 }, 30000);
 
-setView(viewFromHash());
